@@ -13,7 +13,7 @@ export function usePreloadedTilesets(imageFiles: string[]): Record<string, HTMLI
 
     imageFiles.forEach((filename) => {
       const img = new Image();
-      img.src = `/pkassets/tilesets/${filename}`;
+      img.src = `/pokemon-tileset/pkassets/tilesets/${filename}`;
       img.onload = () => {
         if (!mounted) return;
         loadedCount++;

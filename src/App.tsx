@@ -3,6 +3,9 @@ import './App.css';
 import { loadAndAssembleMap } from './blockset';
 import { usePreloadedTilesets } from './hooks/usePreloadedTilesets';
 
+const BASE_URL = '/pokemon-tileset';
+const ASSETS_PATH = `${BASE_URL}/pkassets`;
+
 interface TileCoordinates {
   x: number;
   y: number;
@@ -21,7 +24,6 @@ function App() {
   // State for tile selection, image, map info, etc.
   const [selectedTile, setSelectedTile] = useState<TileCoordinates | null>(null);
   const [selectedImage, setSelectedImage] = useState<string>('overworld.png'); // Default image
-  const [imageLoaded, setImageLoaded] = useState<boolean>(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
   const [selectedMap, setSelectedMap] = useState<string>('PalletTown.blk');
@@ -312,8 +314,8 @@ function App() {
     async function fetchConstantsAndMappings() {
       try {
         const [constRes, mappingRes] = await Promise.all([
-          fetch('/pkassets/constants/map_constants.asm', { signal: controller.signal }),
-          fetch('/pkassets/gfx/tilesets.asm', { signal: controller.signal })
+          fetch(`${ASSETS_PATH}/constants/map_constants.asm`, { signal: controller.signal }),
+          fetch(`${ASSETS_PATH}/gfx/tilesets.asm`, { signal: controller.signal })
         ]);
         if (!constRes.ok || !mappingRes.ok) {
           throw new Error('Failed to load constants or mappings');
@@ -371,11 +373,9 @@ function App() {
     // If the image is already complete (cached), then mark it as loaded,
     // Otherwise set onload callback.
     if (preloadedImage.complete) {
-      setImageLoaded(true);
       drawTileset(preloadedImage);
     } else {
       preloadedImage.onload = () => {
-        setImageLoaded(true);
         drawTileset(preloadedImage);
       };
     }
@@ -431,8 +431,8 @@ function App() {
     async function loadMapData() {
       try {
         const [blkResponse, blocksetResponse] = await Promise.all([
-          fetch(`/pkassets/maps/${selectedMap}`, { signal: controller.signal }),
-          fetch(`/pkassets/blocksets/${selectedBlockset}`, { signal: controller.signal })
+          fetch(`${ASSETS_PATH}/maps/${selectedMap}`, { signal: controller.signal }),
+          fetch(`${ASSETS_PATH}/blocksets/${selectedBlockset}`, { signal: controller.signal })
         ]);
         if (!blkResponse.ok || !blocksetResponse.ok) {
           throw new Error('Error loading map or blockset file');
@@ -441,7 +441,7 @@ function App() {
         const blocksetBuffer = await blocksetResponse.arrayBuffer();
         const blkData = new Uint8Array(blkBuffer);
         const blocksetData = new Uint8Array(blocksetBuffer);
-        if (!mapHeader) return;
+        if (!mapHeader || typeof mapHeader.width !== 'number' || typeof mapHeader.height !== 'number') return;
         const map = loadAndAssembleMap(blkData, blocksetData, mapHeader.width, mapHeader.height);
         setTileMap(map);
       } catch (error: any) {
@@ -463,7 +463,7 @@ function App() {
     const controller = new AbortController();
     async function initializeMap() {
       try {
-        const headerResponse = await fetch(`/pkassets/headers/${debouncedHeader}`, { signal: controller.signal });
+        const headerResponse = await fetch(`${ASSETS_PATH}/headers/${debouncedHeader}`, { signal: controller.signal });
         if (!headerResponse.ok) {
           throw new Error(`HTTP error! Status: ${headerResponse.status}`);
         }
@@ -473,19 +473,20 @@ function App() {
           const sizeConst = headerMatch[2];
           const mapSize = (cachedConstants as Record<string, { width: number; height: number }>)[sizeConst];
           const tilesetName = headerMatch[3].toUpperCase();
-          const actualBlockset = (cachedMappings?.[tilesetName] || tilesetName.toLowerCase());
+          // Remove _1, _2, _3 suffixes for the actual blockset/tileset files
+          const baseBlockset = (cachedMappings?.[tilesetName] || tilesetName.toLowerCase()).replace(/_[1-9]$/, '');
           const newMapHeader: MapHeader = {
             name: headerMatch[1],
             sizeConst,
             tileset: tilesetName,
-            actualBlockset,
+            actualBlockset: baseBlockset,
             width: mapSize?.width,
             height: mapSize?.height,
           };
           setMapHeader(newMapHeader);
           setSelectedMap(`${newMapHeader.name}.blk`);
-          setSelectedBlockset(`${actualBlockset}.bst`);
-          setSelectedImage(`${actualBlockset}.png`);
+          setSelectedBlockset(`${baseBlockset}.bst`);
+          setSelectedImage(`${baseBlockset}.png`);
         }
       } catch (error: any) {
         if (error.name !== 'AbortError') {
