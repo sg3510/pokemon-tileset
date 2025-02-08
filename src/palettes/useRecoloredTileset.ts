@@ -5,11 +5,13 @@ import { PaletteEntry, RGB } from './palettes.d';
  * useRecoloredTileset
  * @param originalTileset The base tileset image (an HTMLImageElement)
  * @param palette The palette to use (which contains sgb colors in 0–31)
+ * @param paletteMode The mode of the palette (either 'cgb' or 'sgb')
  * @param originalColors The 4 original colors in the base tileset (in hex, in 0–255)
  */
 export function useRecoloredTileset(
   originalTileset: HTMLImageElement | undefined,
   palette: PaletteEntry,
+  paletteMode: 'cgb' | 'sgb' = 'cgb',
   originalColors: string[] = ['#ffffff', '#aaaaaa', '#555555', '#000000']
 ): HTMLCanvasElement | null {
   const [recoloredCanvas, setRecoloredCanvas] = useState<HTMLCanvasElement | null>(null);
@@ -52,7 +54,7 @@ export function useRecoloredTileset(
       g: Math.round((color.g / 31) * 255),
       b: Math.round((color.b / 31) * 255)
     });
-    const newColors = palette.cgb.map(scaleColor);
+    const newColors = palette[paletteMode].map(scaleColor);
 
     // Loop through every pixel in the image data.
     for (let i = 0; i < data.length; i += 4) {
@@ -76,14 +78,15 @@ export function useRecoloredTileset(
     // Write the modified pixel data back to the off-screen canvas.
     ctx.putImageData(imageData, 0, 0);
     setRecoloredCanvas(offCanvas);
-  }, [originalTileset, palette]);
+  }, [originalTileset, palette, paletteMode]);
 
   return recoloredCanvas;
 }
 
 export function recolorTileset(
   originalTileset: HTMLImageElement,
-  palette: { cgb: { r: number; g: number; b: number }[] },
+  palette: { cgb: { r: number; g: number; b: number }[]; sgb: { r: number; g: number; b: number }[] },
+  paletteMode: 'cgb' | 'sgb' = 'cgb',
   originalColors: string[] = ["#ffffff", "#aaaaaa", "#555555", "#000000"]
 ): HTMLCanvasElement {
   const offCanvas = document.createElement("canvas");
@@ -116,7 +119,7 @@ export function recolorTileset(
     g: Math.round((color.g / 31) * 255),
     b: Math.round((color.b / 31) * 255),
   });
-  const newColors = palette.cgb.map(scaleColor);
+  const newColors = palette[paletteMode].map(scaleColor);
 
   // Loop through every pixel and replace matching base colors.
   for (let i = 0; i < data.length; i += 4) {

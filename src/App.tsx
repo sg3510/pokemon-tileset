@@ -288,9 +288,10 @@ interface MapHeader {
 
 interface PaletteDisplayProps {
   paletteId: number;
+  paletteMode: 'cgb' | 'sgb';
 }
 
-const PaletteDisplay = memo(({ paletteId }: PaletteDisplayProps) => {
+const PaletteDisplay = memo(({ paletteId, paletteMode }: PaletteDisplayProps) => {
   const palette = palettes[paletteId];
   if (!palette) return null;
 
@@ -300,35 +301,26 @@ const PaletteDisplay = memo(({ paletteId }: PaletteDisplayProps) => {
     b: Math.round((color.b / 31) * 255),
   });
 
-  const renderColorSquare = (color: { r: number; g: number; b: number }, index: number) => {
-    const rgb = convertColor(color);
-    return (
-      <div
-        key={`color-${index}`}
-        style={{
-          width: "30px",
-          height: "30px",
-          backgroundColor: `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`,
-          border: "1px solid #666",
-          margin: "2px",
-        }}
-        title={`R:${color.r} G:${color.g} B:${color.b}`}
-      />
-    );
-  };
+  const currentPalette = paletteMode === 'cgb' ? palette.cgb : palette.sgb;
 
   return (
     <div style={{ padding: "10px" }}>
       <div>
-        <h4 style={{ margin: "5px 0" }}>SGB Palette</h4>
+        <h4 style={{ margin: "5px 0" }}>{paletteMode.toUpperCase()} Palette</h4>
         <div style={{ display: "flex" }}>
-          {palette.sgb.map((color, index) => renderColorSquare(color, index))}
-        </div>
-      </div>
-      <div>
-        <h4 style={{ margin: "5px 0" }}>CGB Palette</h4>
-        <div style={{ display: "flex" }}>
-          {palette.cgb.map((color, index) => renderColorSquare(color, index))}
+          {currentPalette.map((color, index) => (
+            <div
+              key={`color-${index}`}
+              style={{
+                width: "30px",
+                height: "30px",
+                backgroundColor: `rgb(${convertColor(color).r}, ${convertColor(color).g}, ${convertColor(color).b})`,
+                border: "1px solid #666",
+                margin: "2px",
+              }}
+              title={`R:${color.r} G:${color.g} B:${color.b}`}
+            />
+          ))}
         </div>
       </div>
     </div>
@@ -341,8 +333,11 @@ function App() {
   const [selectedHeader, setSelectedHeader] = useState<string>("PalletTown.asm");
   const [currentMapData, setCurrentMapData] = useState<CurrentMapData | null>(null);
 
+  // Add palette mode state
+  const [paletteMode, setPaletteMode] = useState<'cgb' | 'sgb'>('cgb');
+
   // Preload all tileset images.
-  const preloadedTilesets = usePreloadedTilesets(TILESET_FILES);
+  const preloadedTilesets = usePreloadedTilesets(TILESET_FILES, paletteMode);
 
   // Refs for the various canvases.
   const canvasRef = useRef<HTMLCanvasElement>(null); // For the original (left-side) tileset preview.
@@ -572,6 +567,7 @@ function App() {
         const recoloredTileset = recolorTileset(
           originalTileset,
           palettes[paletteId],
+          paletteMode,
           ["#ffffff", "#aaaaaa", "#555555", "#000000"]
         );
 
@@ -590,7 +586,7 @@ function App() {
     })();
 
     return () => controller.abort();
-  }, [selectedHeader, cachedConstants, cachedMappings, mapPointers, preloadedTilesets, tilesetConstants]);
+  }, [selectedHeader, cachedConstants, cachedMappings, mapPointers, preloadedTilesets, tilesetConstants, paletteMode]);
 
   function getMapIdFromHeader(headerName: string, pointers: string[]): number {
     const mapName = headerName.replace(".asm", "") + "_h";
@@ -664,7 +660,7 @@ function App() {
         );
       }
     }
-  }, [currentMapData]);
+  }, [currentMapData, paletteMode]);
 
   return (
     <div className="app-container">
@@ -681,6 +677,17 @@ function App() {
                 {filename}
               </option>
             ))}
+          </select>
+        </div>
+        <div className="selector-group">
+          <label htmlFor="palette-mode-select">Palette Mode:</label>
+          <select
+            id="palette-mode-select"
+            value={paletteMode}
+            onChange={(e) => setPaletteMode(e.target.value as 'cgb' | 'sgb')}
+          >
+            <option value="cgb">Color Game Boy</option>
+            <option value="sgb">Super Game Boy</option>
           </select>
         </div>
         {currentMapData && (
@@ -747,7 +754,10 @@ function App() {
         </div>
 
         {currentMapData && (
-          <PaletteDisplay paletteId={currentMapData.paletteId} />
+          <PaletteDisplay 
+            paletteId={currentMapData.paletteId} 
+            paletteMode={paletteMode}
+          />
         )}
       </div>
     </div>

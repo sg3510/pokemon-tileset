@@ -1,7 +1,19 @@
 import { useState, useEffect } from 'react';
 
-export function usePreloadedTilesets(imageFiles: string[]): Record<string, HTMLImageElement> {
+export function usePreloadedTilesets(
+  imageFiles: string[],
+  paletteMode: 'cgb' | 'sgb' = 'cgb'
+): Record<string, HTMLImageElement> {
   const [tilesets, setTilesets] = useState<Record<string, HTMLImageElement>>({});
+  const [currentMode, setCurrentMode] = useState(paletteMode);
+
+  // Reset tilesets when palette mode changes
+  useEffect(() => {
+    if (currentMode !== paletteMode) {
+      setTilesets({});
+      setCurrentMode(paletteMode);
+    }
+  }, [paletteMode, currentMode]);
 
   useEffect(() => {
     // Only load if we haven't loaded all images yet
@@ -30,7 +42,7 @@ export function usePreloadedTilesets(imageFiles: string[]): Record<string, HTMLI
     return () => {
       mounted = false;
     };
-  }, []); // Empty dependency array - only run once on mount
+  }, [imageFiles, currentMode]); // Add currentMode to dependencies
 
   return tilesets;
 }
