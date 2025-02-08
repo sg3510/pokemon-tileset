@@ -3,8 +3,18 @@ import React, { useState, useRef, useEffect, useCallback, memo } from "react";
 import "./App.css";
 import { loadAndAssembleMap } from "./blockset";
 import { usePreloadedTilesets } from "./hooks/usePreloadedTilesets";
+import { getPaletteId } from "./palettes/getPalletteId";
+import { palettes } from "./palettes/palettes";
+import { recolorTileset } from "./palettes/useRecoloredTileset";
 
-// Move lists and constants outside (or memoize them)
+interface CurrentMapData {
+  header: MapHeader;
+  tileMap: number[][];
+  recoloredTileset: HTMLCanvasElement;
+  paletteId: number;
+}
+
+// The list of available header files.
 const AVAILABLE_HEADERS = [
   "AgathasRoom.asm",
   "BikeShop.asm",
@@ -258,12 +268,14 @@ const TILESET_FILES = [
   "underground.png",
 ];
 
-// Fixed settings (could be declared outside too)
 const TILE_SIZE = 8;
 const ZOOM_FACTOR = 4;
 const DISPLAY_SCALE = 2;
 
-interface TileCoordinates { x: number; y: number; }
+interface TileCoordinates {
+  x: number;
+  y: number;
+}
 
 interface MapHeader {
   name: string;
@@ -274,67 +286,75 @@ interface MapHeader {
   actualBlockset: string;
 }
 
-// Create a memoized component for each rendered tile
-interface TileCanvasProps {
-  tileId: number;
-  tileset: HTMLImageElement;
+interface PaletteDisplayProps {
+  paletteId: number;
 }
-const TileCanvas = memo(({ tileId, tileset }: TileCanvasProps) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    if (canvasRef.current && tileset) {
-      const ctx = canvasRef.current.getContext("2d");
-      if (ctx) {
-        const tilesPerRow = Math.floor(tileset.width / TILE_SIZE);
-        const srcX = (tileId % tilesPerRow) * TILE_SIZE;
-        const srcY = Math.floor(tileId / tilesPerRow) * TILE_SIZE;
-        ctx.imageSmoothingEnabled = false;
-        ctx.clearRect(0, 0, TILE_SIZE * DISPLAY_SCALE, TILE_SIZE * DISPLAY_SCALE);
-        ctx.drawImage(
-          tileset,
-          srcX,
-          srcY,
-          TILE_SIZE,
-          TILE_SIZE,
-          0,
-          0,
-          TILE_SIZE * DISPLAY_SCALE,
-          TILE_SIZE * DISPLAY_SCALE
-        );
-      }
-    }
-  }, [tileId, tileset]);
+
+const PaletteDisplay = memo(({ paletteId }: PaletteDisplayProps) => {
+  const palette = palettes[paletteId];
+  if (!palette) return null;
+
+  const convertColor = (color: { r: number; g: number; b: number }) => ({
+    r: Math.round((color.r / 31) * 255),
+    g: Math.round((color.g / 31) * 255),
+    b: Math.round((color.b / 31) * 255),
+  });
+
+  const renderColorSquare = (color: { r: number; g: number; b: number }, index: number) => {
+    const rgb = convertColor(color);
+    return (
+      <div
+        key={`color-${index}`}
+        style={{
+          width: "30px",
+          height: "30px",
+          backgroundColor: `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`,
+          border: "1px solid #666",
+          margin: "2px",
+        }}
+        title={`R:${color.r} G:${color.g} B:${color.b}`}
+      />
+    );
+  };
+
   return (
-    <canvas
-      ref={canvasRef}
-      width={TILE_SIZE * DISPLAY_SCALE}
-      height={TILE_SIZE * DISPLAY_SCALE}
-      className="tile-canvas"
-      title={`Tile ${tileId.toString(16).padStart(2, "0")}`}
-    />
+    <div style={{ padding: "10px" }}>
+      <div>
+        <h4 style={{ margin: "5px 0" }}>SGB Palette</h4>
+        <div style={{ display: "flex" }}>
+          {palette.sgb.map((color, index) => renderColorSquare(color, index))}
+        </div>
+      </div>
+      <div>
+        <h4 style={{ margin: "5px 0" }}>CGB Palette</h4>
+        <div style={{ display: "flex" }}>
+          {palette.cgb.map((color, index) => renderColorSquare(color, index))}
+        </div>
+      </div>
+    </div>
   );
 });
 
 function App() {
-  // States for selections, header info, map data, etc.
+  // -- Selections and preloads --
   const [selectedTile, setSelectedTile] = useState<TileCoordinates | null>(null);
-  const [selectedImage, setSelectedImage] = useState<string>("overworld.png");
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const previewCanvasRef = useRef<HTMLCanvasElement>(null);
-  const [selectedMap, setSelectedMap] = useState<string>("PalletTown.blk");
-  const [selectedBlockset, setSelectedBlockset] = useState<string>("overworld.bst");
-  const [tileMap, setTileMap] = useState<number[][] | null>(null);
   const [selectedHeader, setSelectedHeader] = useState<string>("PalletTown.asm");
-  const [mapHeader, setMapHeader] = useState<MapHeader | null>(null);
-  const [cachedConstants, setCachedConstants] = useState<Record<string, { width: number; height: number }> | null>(null);
-  const [cachedMappings, setCachedMappings] = useState<Record<string, string> | null>(null);
+  const [currentMapData, setCurrentMapData] = useState<CurrentMapData | null>(null);
 
-  // Preload all tileset images (using a custom hook)
+  // Preload all tileset images.
   const preloadedTilesets = usePreloadedTilesets(TILESET_FILES);
 
-  // useCallback version of our drawing functions
+  // Refs for the various canvases.
+  const canvasRef = useRef<HTMLCanvasElement>(null); // For the original (left-side) tileset preview.
+  const previewCanvasRef = useRef<HTMLCanvasElement>(null);
+  const mapCanvasRef = useRef<HTMLCanvasElement>(null); // For the full map rendering.
 
-  // Draw grid in one path rather than many strokes (for speed)
+  // Cached data loaded at startup.
+  const [cachedConstants, setCachedConstants] = useState<Record<string, { width: number; height: number }>>({});
+  const [cachedMappings, setCachedMappings] = useState<Record<string, string>>({});
+  const [mapPointers, setMapPointers] = useState<string[]>([]);
+  const [tilesetConstants, setTilesetConstants] = useState<Record<string, number>>({});
+
   const drawGrid = useCallback((ctx: CanvasRenderingContext2D, width: number, height: number) => {
     ctx.strokeStyle = "rgba(0, 0, 0, 0.5)";
     ctx.lineWidth = 1;
@@ -350,17 +370,20 @@ function App() {
     ctx.stroke();
   }, []);
 
-  const drawTileset = useCallback((img: HTMLImageElement) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    canvas.width = img.naturalWidth;
-    canvas.height = img.naturalHeight;
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(img, 0, 0);
-    drawGrid(ctx, img.naturalWidth, img.naturalHeight);
-  }, [drawGrid]);
+  const drawTileset = useCallback(
+    (img: HTMLImageElement) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(img, 0, 0);
+      drawGrid(ctx, img.naturalWidth, img.naturalHeight);
+    },
+    [drawGrid]
+  );
 
   const handleCanvasClick = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -373,19 +396,15 @@ function App() {
     setSelectedTile({ x: tileX, y: tileY });
   }, []);
 
-  // --- Fetch and cache constants and mappings just once ---
+  // Load cached constants and mappings.
   useEffect(() => {
-    if (cachedConstants && cachedMappings) return;
+    if (Object.keys(cachedConstants).length && Object.keys(cachedMappings).length) return;
     const controller = new AbortController();
     (async function fetchConstantsAndMappings() {
       try {
         const [constRes, mappingRes] = await Promise.all([
-          fetch(`/pokemon-tileset/pkassets/constants/map_constants.asm`, {
-            signal: controller.signal,
-          }),
-          fetch(`/pokemon-tileset/pkassets/gfx/tilesets.asm`, {
-            signal: controller.signal,
-          }),
+          fetch(`/pokemon-tileset/pkassets/constants/map_constants.asm`, { signal: controller.signal }),
+          fetch(`/pokemon-tileset/pkassets/gfx/tilesets.asm`, { signal: controller.signal }),
         ]);
         if (!constRes.ok || !mappingRes.ok) {
           throw new Error("Failed to load constants or mappings");
@@ -429,94 +448,169 @@ function App() {
     return () => controller.abort();
   }, [cachedConstants, cachedMappings]);
 
-  // --- Draw tileset when preloaded image is available
+  // Load map pointers.
   useEffect(() => {
-    const preloadedImage = preloadedTilesets[selectedImage];
+    async function loadMapPointers() {
+      try {
+        const response = await fetch("/pokemon-tileset/pkassets/data/maps/map_header_pointers.asm");
+        if (!response.ok) {
+          throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+        const content = await response.text();
+        const pointers = content
+          .split("\n")
+          .map((line) => line.trim())
+          .filter((line) => line.startsWith("dw "));
+        setMapPointers(pointers);
+      } catch (error) {
+        console.error("Error fetching map header pointers:", error);
+      }
+    }
+    loadMapPointers();
+  }, []);
+
+  // Load tileset constants.
+  useEffect(() => {
+    async function loadTilesetConstants() {
+      try {
+        const response = await fetch("/pokemon-tileset/pkassets/constants/tileset_constants.asm");
+        if (!response.ok) {
+          throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+        const content = await response.text();
+        const constants: Record<string, number> = {};
+        content
+          .split("\n")
+          .map((line) => line.trim())
+          .filter((line) => line.startsWith("const "))
+          .forEach((line, index) => {
+            const match = line.match(/const\s+(\w+)/);
+            if (match) {
+              constants[match[1]] = index;
+            }
+          });
+        setTilesetConstants(constants);
+      } catch (error) {
+        console.error("Error fetching tileset constants:", error);
+      }
+    }
+    loadTilesetConstants();
+  }, []);
+
+  // When a new header is selected, load all required data.
+  const headerRequestIdRef = useRef(0);
+  useEffect(() => {
+    if (
+      !Object.keys(cachedConstants).length ||
+      !Object.keys(cachedMappings).length ||
+      mapPointers.length === 0 ||
+      Object.keys(preloadedTilesets).length === 0 ||
+      Object.keys(tilesetConstants).length === 0
+    )
+      return;
+
+    headerRequestIdRef.current++;
+    const currentRequestId = headerRequestIdRef.current;
+    const controller = new AbortController();
+
+    (async function loadMapChain() {
+      try {
+        // 1. Fetch and parse the header file.
+        const headerResponse = await fetch(`/pokemon-tileset/pkassets/headers/${selectedHeader}`, {
+          signal: controller.signal,
+        });
+        if (!headerResponse.ok)
+          throw new Error(`HTTP error! Status: ${headerResponse.status}`);
+        const headerText = await headerResponse.text();
+        const headerMatch = headerText.match(/map_header\s+(\w+),\s+(\w+),\s+(\w+)/);
+        if (!headerMatch) throw new Error("Failed to parse header file");
+        if (currentRequestId !== headerRequestIdRef.current) return;
+
+        const headerName = headerMatch[1];
+        const sizeConst = headerMatch[2];
+        const tilesetName = headerMatch[3].toUpperCase();
+        const dimensions = cachedConstants[sizeConst];
+        if (!dimensions)
+          throw new Error("Map dimensions not found for " + sizeConst);
+        const baseBlockset = (cachedMappings[tilesetName] || tilesetName.toLowerCase()).replace(/_[1-9]$/, "");
+        const newHeader: MapHeader = {
+          name: headerName,
+          sizeConst,
+          tileset: tilesetName,
+          actualBlockset: baseBlockset,
+          width: dimensions.width,
+          height: dimensions.height,
+        };
+
+        // 2. Determine file names.
+        const newSelectedMap = `${newHeader.name}.blk`;
+        const newSelectedBlockset = `${newHeader.actualBlockset}.bst`;
+        const newSelectedImage = `${newHeader.actualBlockset}.png`;
+
+        // 3. Ensure the new tileset image is preloaded.
+        const originalTileset = preloadedTilesets[newSelectedImage];
+        if (!originalTileset)
+          throw new Error(`Tileset image ${newSelectedImage} not loaded`);
+
+        // 4. Fetch the map and blockset files concurrently.
+        const [blkResponse, bstResponse] = await Promise.all([
+          fetch(`/pokemon-tileset/pkassets/maps/${newSelectedMap}`, { signal: controller.signal }),
+          fetch(`/pokemon-tileset/pkassets/blocksets/${newSelectedBlockset}`, { signal: controller.signal }),
+        ]);
+        if (!blkResponse.ok || !bstResponse.ok)
+          throw new Error("Error loading map or blockset file");
+        const blkData = new Uint8Array(await blkResponse.arrayBuffer());
+        const blocksetData = new Uint8Array(await bstResponse.arrayBuffer());
+        const map = loadAndAssembleMap(blkData, blocksetData, dimensions.width, dimensions.height);
+
+        // 5. Compute map ID and tileset ID then determine the palette ID.
+        const mapId = getMapIdFromHeader(selectedHeader, mapPointers);
+        const tilesetId = tilesetConstants[newHeader.tileset] || 0;
+        const paletteId = getPaletteId(mapId, tilesetId);
+
+        // 6. Recolor the tileset image.
+        const recoloredTileset = recolorTileset(
+          originalTileset,
+          palettes[paletteId],
+          ["#ffffff", "#aaaaaa", "#555555", "#000000"]
+        );
+
+        // 7. Update the combined state.
+        setCurrentMapData({
+          header: newHeader,
+          tileMap: map,
+          recoloredTileset,
+          paletteId,
+        });
+      } catch (error: any) {
+        if (error.name !== "AbortError") {
+          console.error("Error in header/map loading chain:", error);
+        }
+      }
+    })();
+
+    return () => controller.abort();
+  }, [selectedHeader, cachedConstants, cachedMappings, mapPointers, preloadedTilesets, tilesetConstants]);
+
+  function getMapIdFromHeader(headerName: string, pointers: string[]): number {
+    const mapName = headerName.replace(".asm", "") + "_h";
+    const index = pointers.findIndex((line) => line.includes(mapName));
+    return index;
+  }
+
+  // Draw the original tileset image (for inspection).
+  useEffect(() => {
+    const newImage = currentMapData?.header.actualBlockset + ".png" || "overworld.png";
+    const preloadedImage = preloadedTilesets[newImage];
     if (!preloadedImage || !canvasRef.current) return;
     if (preloadedImage.complete) {
       drawTileset(preloadedImage);
     } else {
       preloadedImage.onload = () => drawTileset(preloadedImage);
     }
-  }, [selectedImage, preloadedTilesets, drawTileset]);
+  }, [currentMapData, preloadedTilesets, drawTileset]);
 
-  // --- Load map data once we have the header with width/height ---
-  useEffect(() => {
-    if (!mapHeader || typeof mapHeader.width !== "number" || typeof mapHeader.height !== "number")
-      return;
-    const controller = new AbortController();
-    (async function loadMapData() {
-      try {
-        const [blkResponse, blocksetResponse] = await Promise.all([
-          fetch(`/pokemon-tileset/pkassets/maps/${selectedMap}`, { signal: controller.signal }),
-          fetch(`/pokemon-tileset/pkassets/blocksets/${selectedBlockset}`, { signal: controller.signal }),
-        ]);
-        if (!blkResponse.ok || !blocksetResponse.ok) {
-          throw new Error("Error loading map or blockset file");
-        }
-        const blkData = new Uint8Array(await blkResponse.arrayBuffer());
-        const blocksetData = new Uint8Array(await blocksetResponse.arrayBuffer());
-        if (!mapHeader.width || !mapHeader.height) {
-          throw new Error("Map header does not contain width or height");
-        }
-        const map = loadAndAssembleMap(blkData, blocksetData, mapHeader.width, mapHeader.height);
-        setTileMap(map);
-      } catch (error: any) {
-        if (error.name !== "AbortError") {
-          console.error("Error loading map data:", error);
-          alert("Error loading map data. Check console for details.");
-        }
-      }
-    })();
-    return () => controller.abort();
-  }, [selectedMap, selectedBlockset, mapHeader]);
-
-  // Use a ref counter so that only the newest header request counts
-  const headerRequestIdRef = useRef(0);
-  useEffect(() => {
-    if (!cachedConstants || !cachedMappings) return;
-    headerRequestIdRef.current++;
-    const currentRequestId = headerRequestIdRef.current;
-    const controller = new AbortController();
-    (async function initializeMap() {
-      try {
-        const headerResponse = await fetch(`/pokemon-tileset/pkassets/headers/${selectedHeader}`, {
-          signal: controller.signal,
-        });
-        if (!headerResponse.ok) {
-          throw new Error(`HTTP error! Status: ${headerResponse.status}`);
-        }
-        const headerText = await headerResponse.text();
-        const headerMatch = headerText.match(/map_header\s+(\w+),\s+(\w+),\s+(\w+)/);
-        if (headerMatch) {
-          if (currentRequestId !== headerRequestIdRef.current) return;
-          const sizeConst = headerMatch[2];
-          const mapSize = cachedConstants[sizeConst];
-          const tilesetName = headerMatch[3].toUpperCase();
-          const baseBlockset = (cachedMappings[tilesetName] || tilesetName.toLowerCase()).replace(/_[1-9]$/, "");
-          const newMapHeader: MapHeader = {
-            name: headerMatch[1],
-            sizeConst,
-            tileset: tilesetName,
-            actualBlockset: baseBlockset,
-            width: mapSize?.width,
-            height: mapSize?.height,
-          };
-          setMapHeader(newMapHeader);
-          setSelectedMap(`${newMapHeader.name}.blk`);
-          setSelectedBlockset(`${baseBlockset}.bst`);
-          setSelectedImage(`${baseBlockset}.png`);
-        }
-      } catch (error: any) {
-        if (error.name !== "AbortError") {
-          console.error("Error during header initialization:", error);
-        }
-      }
-    })();
-    return () => controller.abort();
-  }, [selectedHeader, cachedConstants, cachedMappings]);
-
-  // --- Draw preview tile when one is selected ---
+  // Draw the preview (zoomed) tile when a tile is selected.
   useEffect(() => {
     if (!selectedTile || !previewCanvasRef.current || !canvasRef.current) return;
     const previewCtx = previewCanvasRef.current.getContext("2d");
@@ -537,6 +631,41 @@ function App() {
     );
   }, [selectedTile]);
 
+  // ── New Effect: Render the full map onto a single canvas ─────────
+  useEffect(() => {
+    if (!currentMapData || !mapCanvasRef.current) return;
+    const canvas = mapCanvasRef.current;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const { tileMap, recoloredTileset } = currentMapData;
+    const rows = tileMap.length;
+    const cols = tileMap[0]?.length || 0;
+    // Set the canvas size based on the map dimensions.
+    canvas.width = cols * TILE_SIZE * DISPLAY_SCALE;
+    canvas.height = rows * TILE_SIZE * DISPLAY_SCALE;
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const tilesPerRow = Math.floor(recoloredTileset.width / TILE_SIZE);
+    for (let y = 0; y < rows; y++) {
+      for (let x = 0; x < cols; x++) {
+        const tileId = tileMap[y][x];
+        const srcX = (tileId % tilesPerRow) * TILE_SIZE;
+        const srcY = Math.floor(tileId / tilesPerRow) * TILE_SIZE;
+        ctx.drawImage(
+          recoloredTileset,
+          srcX,
+          srcY,
+          TILE_SIZE,
+          TILE_SIZE,
+          x * TILE_SIZE * DISPLAY_SCALE,
+          y * TILE_SIZE * DISPLAY_SCALE,
+          TILE_SIZE * DISPLAY_SCALE,
+          TILE_SIZE * DISPLAY_SCALE
+        );
+      }
+    }
+  }, [currentMapData]);
+
   return (
     <div className="app-container">
       <div className="image-selector">
@@ -548,23 +677,41 @@ function App() {
             onChange={(e) => setSelectedHeader(e.target.value)}
           >
             {AVAILABLE_HEADERS.map((filename) => (
-              <option key={filename} value={filename}>{filename}</option>
+              <option key={filename} value={filename}>
+                {filename}
+              </option>
             ))}
           </select>
         </div>
-        {mapHeader && (
-          <div className="map-info">
-            <p>Map Name: {mapHeader.name}</p>
-            <p>Size Constant: {mapHeader.sizeConst}</p>
-            <p>Tileset: {mapHeader.tileset} → {mapHeader.actualBlockset}</p>
-            {mapHeader.width !== undefined && mapHeader.height !== undefined && (
-              <p>Size: {mapHeader.width}x{mapHeader.height} tiles</p>
-            )}
+        {currentMapData && (
+          <div className="map-info" style={{ textAlign: "left" }}>
+            <p>Map Name: {currentMapData.header.name}</p>
+            <p>Map ID: {getMapIdFromHeader(selectedHeader, mapPointers)}</p>
+            <p>Size Constant: {currentMapData.header.sizeConst}</p>
+            <p>
+              Tileset ID: {tilesetConstants[currentMapData.header.tileset] || 0}
+            </p>
+            <p>
+              Tileset: {currentMapData.header.tileset} →{" "}
+              {currentMapData.header.actualBlockset}
+            </p>
+            <p>Palette ID: {currentMapData.paletteId}</p>
+            {currentMapData.header.width !== undefined &&
+              currentMapData.header.height !== undefined && (
+                <p>
+                  Size: {currentMapData.header.width}x
+                  {currentMapData.header.height} tiles
+                </p>
+              )}
             <p>Required Files:</p>
-            <ul className="required-files">
-              <li>maps/{mapHeader.name}.blk</li>
-              <li>gfx/blocksets/{mapHeader.actualBlockset}.bst</li>
-              <li>gfx/tilesets/{mapHeader.actualBlockset}.png</li>
+            <ul className="required-files" style={{ textAlign: "left" }}>
+              <li>maps/{currentMapData.header.name}.blk</li>
+              <li>
+                gfx/blocksets/{currentMapData.header.actualBlockset}.bst
+              </li>
+              <li>
+                gfx/tilesets/{currentMapData.header.actualBlockset}.png
+              </li>
             </ul>
           </div>
         )}
@@ -580,21 +727,8 @@ function App() {
         </div>
 
         <div className="map-display">
-          {tileMap && preloadedTilesets[selectedImage] && (
-            <div className="tile-grid">
-              {tileMap.map((row, rowIndex) => (
-                <div key={rowIndex} className="tile-row">
-                  {row.map((tileId, colIndex) => (
-                    <TileCanvas
-                      key={colIndex}
-                      tileId={tileId}
-                      tileset={preloadedTilesets[selectedImage]}
-                    />
-                  ))}
-                </div>
-              ))}
-            </div>
-          )}
+          {/* Single canvas used to render the full assembled map */}
+          <canvas ref={mapCanvasRef} style={{ border: "1px solid #000" }} />
         </div>
 
         <div className="tile-preview">
@@ -605,10 +739,16 @@ function App() {
                 width={TILE_SIZE * ZOOM_FACTOR}
                 height={TILE_SIZE * ZOOM_FACTOR}
               />
-              <p>Tile Coordinates: ({selectedTile.x}, {selectedTile.y})</p>
+              <p>
+                Tile Coordinates: ({selectedTile.x}, {selectedTile.y})
+              </p>
             </>
           )}
         </div>
+
+        {currentMapData && (
+          <PaletteDisplay paletteId={currentMapData.paletteId} />
+        )}
       </div>
     </div>
   );
