@@ -1,5 +1,42 @@
 import { PaletteEntry } from "./palettes.d";
 
+// define all the palettes here as constants
+
+export const PAL_ROUTE = 0x00;
+export const PAL_PALLET = 0x01;
+export const PAL_VIRIDIAN = 0x02;
+export const PAL_PEWTER = 0x03;
+export const PAL_CERULEAN = 0x04;
+export const PAL_LAVENDER = 0x05;
+export const PAL_VERMILION = 0x06;
+export const PAL_CELADON = 0x07;
+export const PAL_FUCHSIA = 0x08;
+export const PAL_CINNABAR = 0x09;
+export const PAL_INDIGO = 0x0A;
+export const PAL_SAFFRON = 0x0B;
+export const PAL_TOWNMAP = 0x0C;
+export const PAL_LOGO1 = 0x0D;
+export const PAL_LOGO2 = 0x0E;
+export const PAL_0F = 0x0F;
+export const PAL_MEWMON = 0x10;
+export const PAL_BLUEMON = 0x11;
+export const PAL_REDMON = 0x12;
+export const PAL_CYANMON = 0x13;
+export const PAL_PURPLEMON = 0x14;
+export const PAL_BROWNMON = 0x15;
+export const PAL_GREENMON = 0x16;
+export const PAL_PINKMON = 0x17;
+export const PAL_YELLOWMON = 0x18;
+export const PAL_GRAYMON = 0x19;
+export const PAL_SLOTS1 = 0x1A;
+export const PAL_SLOTS2 = 0x1B;
+export const PAL_SLOTS3 = 0x1C;
+export const PAL_SLOTS4 = 0x1D;
+export const PAL_BLACK = 0x1E;
+export const PAL_WHITE = 0x1F;
+export const PAL_CAVE = 0x23;
+
+
 export const palettes: PaletteEntry[] = [
   { // PAL_ROUTE
     index: 0,
@@ -92,7 +129,7 @@ export const palettes: PaletteEntry[] = [
     ]
   },
   { // PAL_INDIGO
-    index: 10,
+    index: 10, // 0xA
     sgb: [
       {r: 31, g: 31, b: 30}, {r: 17, g: 17, b: 25}, {r: 23, g: 27, b: 31}, {r: 6, g: 6, b: 6}
     ],

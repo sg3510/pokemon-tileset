@@ -6,271 +6,36 @@ import { usePreloadedTilesets } from "./hooks/usePreloadedTilesets";
 import { getPaletteId } from "./palettes/getPalletteId";
 import { palettes } from "./palettes/palettes";
 import { recolorTileset } from "./palettes/useRecoloredTileset";
+import { TILESETS, TileAnimation } from "./tile/tileset-constants";
+import { AVAILABLE_HEADERS, TILESET_FILES } from "./constants/const";
+import { useLocation, useNavigate } from 'react-router-dom';
 
+//
+// Constants for rendering
+//
+const TILE_SIZE = 8;
+const ZOOM_FACTOR = 4;
+const DISPLAY_SCALE = 2;
+
+// The water tile is always tile number 20 (0x14)
+const WATER_TILE_ID = 20;
+// The flower tile is always tile number 3 (0x03)
+const FLOWER_TILE_ID = 3;
+// The tileset is assumed to be 8 columns wide.
+const TILES_PER_ROW = 16;
+
+// How often (in ms) the water pixels shift.
+const WATER_ANIMATION_DELAY = 275;
+
+//
+// Interfaces
+//
 interface CurrentMapData {
   header: MapHeader;
   tileMap: number[][];
   recoloredTileset: HTMLCanvasElement;
   paletteId: number;
 }
-
-// The list of available header files.
-const AVAILABLE_HEADERS = [
-  "AgathasRoom.asm",
-  "BikeShop.asm",
-  "BillsHouse.asm",
-  "BluesHouse.asm",
-  "BrunosRoom.asm",
-  "CeladonChiefHouse.asm",
-  "CeladonCity.asm",
-  "CeladonDiner.asm",
-  "CeladonGym.asm",
-  "CeladonHotel.asm",
-  "CeladonMansion1F.asm",
-  "CeladonMansion2F.asm",
-  "CeladonMansion3F.asm",
-  "CeladonMansionRoof.asm",
-  "CeladonMansionRoofHouse.asm",
-  "CeladonMart1F.asm",
-  "CeladonMart2F.asm",
-  "CeladonMart3F.asm",
-  "CeladonMart4F.asm",
-  "CeladonMart5F.asm",
-  "CeladonMartElevator.asm",
-  "CeladonMartRoof.asm",
-  "CeladonPokecenter.asm",
-  "CeruleanBadgeHouse.asm",
-  "CeruleanCave1F.asm",
-  "CeruleanCave2F.asm",
-  "CeruleanCaveB1F.asm",
-  "CeruleanCity.asm",
-  "CeruleanGym.asm",
-  "CeruleanMart.asm",
-  "CeruleanMelaniesHouse.asm",
-  "CeruleanPokecenter.asm",
-  "CeruleanTrashedHouse.asm",
-  "ChampionsRoom.asm",
-  "CinnabarGym.asm",
-  "CinnabarIsland.asm",
-  "CinnabarLab.asm",
-  "CinnabarLabFossilRoom.asm",
-  "CinnabarLabMetronomeRoom.asm",
-  "CinnabarLabTradeRoom.asm",
-  "CinnabarMart.asm",
-  "CinnabarPokecenter.asm",
-  "Colosseum.asm",
-  "CopycatsHouse1F.asm",
-  "CopycatsHouse2F.asm",
-  "Daycare.asm",
-  "DiglettsCave.asm",
-  "DiglettsCaveRoute11.asm",
-  "DiglettsCaveRoute2.asm",
-  "FightingDojo.asm",
-  "FuchsiaBillsGrandpasHouse.asm",
-  "FuchsiaCity.asm",
-  "FuchsiaGoodRodHouse.asm",
-  "FuchsiaGym.asm",
-  "FuchsiaMart.asm",
-  "FuchsiaMeetingRoom.asm",
-  "FuchsiaPokecenter.asm",
-  "GameCorner.asm",
-  "GameCornerPrizeRoom.asm",
-  "HallOfFame.asm",
-  "IndigoPlateau.asm",
-  "IndigoPlateauLobby.asm",
-  "LancesRoom.asm",
-  "LavenderCuboneHouse.asm",
-  "LavenderMart.asm",
-  "LavenderPokecenter.asm",
-  "LavenderTown.asm",
-  "LoreleisRoom.asm",
-  "MrFujisHouse.asm",
-  "MrPsychicsHouse.asm",
-  "MtMoon1F.asm",
-  "MtMoonB1F.asm",
-  "MtMoonB2F.asm",
-  "MtMoonPokecenter.asm",
-  "Museum1F.asm",
-  "Museum2F.asm",
-  "NameRatersHouse.asm",
-  "OaksLab.asm",
-  "PalletTown.asm",
-  "PewterCity.asm",
-  "PewterGym.asm",
-  "PewterMart.asm",
-  "PewterNidoranHouse.asm",
-  "PewterPokecenter.asm",
-  "PewterSpeechHouse.asm",
-  "PokemonFanClub.asm",
-  "PokemonMansion1F.asm",
-  "PokemonMansion2F.asm",
-  "PokemonMansion3F.asm",
-  "PokemonMansionB1F.asm",
-  "PokemonTower1F.asm",
-  "PokemonTower2F.asm",
-  "PokemonTower3F.asm",
-  "PokemonTower4F.asm",
-  "PokemonTower5F.asm",
-  "PokemonTower6F.asm",
-  "PokemonTower7F.asm",
-  "PowerPlant.asm",
-  "RedsHouse1F.asm",
-  "RedsHouse2F.asm",
-  "RockTunnel1F.asm",
-  "RockTunnelB1F.asm",
-  "RockTunnelPokecenter.asm",
-  "RocketHideoutB1F.asm",
-  "RocketHideoutB2F.asm",
-  "RocketHideoutB3F.asm",
-  "RocketHideoutB4F.asm",
-  "RocketHideoutElevator.asm",
-  "Route1.asm",
-  "Route10.asm",
-  "Route11.asm",
-  "Route11Gate1F.asm",
-  "Route11Gate2F.asm",
-  "Route12.asm",
-  "Route12Gate1F.asm",
-  "Route12Gate2F.asm",
-  "Route12SuperRodHouse.asm",
-  "Route13.asm",
-  "Route14.asm",
-  "Route15.asm",
-  "Route15Gate1F.asm",
-  "Route15Gate2F.asm",
-  "Route16.asm",
-  "Route16FlyHouse.asm",
-  "Route16Gate1F.asm",
-  "Route16Gate2F.asm",
-  "Route17.asm",
-  "Route18.asm",
-  "Route18Gate1F.asm",
-  "Route18Gate2F.asm",
-  "Route19.asm",
-  "Route2.asm",
-  "Route20.asm",
-  "Route21.asm",
-  "Route22.asm",
-  "Route22Gate.asm",
-  "Route23.asm",
-  "Route24.asm",
-  "Route25.asm",
-  "Route2Gate.asm",
-  "Route2TradeHouse.asm",
-  "Route3.asm",
-  "Route4.asm",
-  "Route5.asm",
-  "Route5Gate.asm",
-  "Route6.asm",
-  "Route6Gate.asm",
-  "Route7.asm",
-  "Route7Gate.asm",
-  "Route8.asm",
-  "Route8Gate.asm",
-  "Route9.asm",
-  "SSAnne1F.asm",
-  "SSAnne1FRooms.asm",
-  "SSAnne2F.asm",
-  "SSAnne2FRooms.asm",
-  "SSAnne3F.asm",
-  "SSAnneB1F.asm",
-  "SSAnneB1FRooms.asm",
-  "SSAnneBow.asm",
-  "SSAnneCaptainsRoom.asm",
-  "SSAnneKitchen.asm",
-  "SafariZoneCenter.asm",
-  "SafariZoneCenterRestHouse.asm",
-  "SafariZoneEast.asm",
-  "SafariZoneEastRestHouse.asm",
-  "SafariZoneGate.asm",
-  "SafariZoneNorth.asm",
-  "SafariZoneNorthRestHouse.asm",
-  "SafariZoneSecretHouse.asm",
-  "SafariZoneWest.asm",
-  "SafariZoneWestRestHouse.asm",
-  "SaffronCity.asm",
-  "SaffronGym.asm",
-  "SaffronMart.asm",
-  "SaffronPidgeyHouse.asm",
-  "SaffronPokecenter.asm",
-  "SeafoamIslands1F.asm",
-  "SeafoamIslandsB1F.asm",
-  "SeafoamIslandsB2F.asm",
-  "SeafoamIslandsB3F.asm",
-  "SeafoamIslandsB4F.asm",
-  "SilphCo10F.asm",
-  "SilphCo11F.asm",
-  "SilphCo1F.asm",
-  "SilphCo2F.asm",
-  "SilphCo3F.asm",
-  "SilphCo4F.asm",
-  "SilphCo5F.asm",
-  "SilphCo6F.asm",
-  "SilphCo7F.asm",
-  "SilphCo8F.asm",
-  "SilphCo9F.asm",
-  "SilphCoElevator.asm",
-  "SummerBeachHouse.asm",
-  "TradeCenter.asm",
-  "UndergroundPathNorthSouth.asm",
-  "UndergroundPathRoute5.asm",
-  "UndergroundPathRoute6.asm",
-  "UndergroundPathRoute7.asm",
-  "UndergroundPathRoute7Copy.asm",
-  "UndergroundPathRoute8.asm",
-  "UndergroundPathWestEast.asm",
-  "VermilionCity.asm",
-  "VermilionDock.asm",
-  "VermilionGym.asm",
-  "VermilionMart.asm",
-  "VermilionOldRodHouse.asm",
-  "VermilionPidgeyHouse.asm",
-  "VermilionPokecenter.asm",
-  "VermilionTradeHouse.asm",
-  "VictoryRoad1F.asm",
-  "VictoryRoad2F.asm",
-  "VictoryRoad3F.asm",
-  "ViridianCity.asm",
-  "ViridianForest.asm",
-  "ViridianForestNorthGate.asm",
-  "ViridianForestSouthGate.asm",
-  "ViridianGym.asm",
-  "ViridianMart.asm",
-  "ViridianNicknameHouse.asm",
-  "ViridianPokecenter.asm",
-  "ViridianSchoolHouse.asm",
-  "WardensHouse.asm",
-];
-
-const TILESET_FILES = [
-  "beach_house.png",
-  "cavern.png",
-  "cemetery.png",
-  "club.png",
-  "facility.png",
-  "flower/flower1.png",
-  "flower/flower2.png",
-  "flower/flower3.png",
-  "forest.png",
-  "gate.png",
-  "gym.png",
-  "house.png",
-  "interior.png",
-  "lab.png",
-  "lobby.png",
-  "mansion.png",
-  "overworld.png",
-  "plateau.png",
-  "pokecenter.png",
-  "reds_house.png",
-  "ship.png",
-  "ship_port.png",
-  "underground.png",
-];
-
-const TILE_SIZE = 8;
-const ZOOM_FACTOR = 4;
-const DISPLAY_SCALE = 2;
 
 interface TileCoordinates {
   x: number;
@@ -291,6 +56,9 @@ interface PaletteDisplayProps {
   paletteMode: 'cgb' | 'sgb';
 }
 
+//
+// A simple PaletteDisplay component
+//
 const PaletteDisplay = memo(({ paletteId, paletteMode }: PaletteDisplayProps) => {
   const palette = palettes[paletteId];
   if (!palette) return null;
@@ -305,51 +73,70 @@ const PaletteDisplay = memo(({ paletteId, paletteMode }: PaletteDisplayProps) =>
 
   return (
     <div style={{ padding: "10px" }}>
-      <div>
-        <h4 style={{ margin: "5px 0" }}>{paletteMode.toUpperCase()} Palette</h4>
-        <div style={{ display: "flex" }}>
-          {currentPalette.map((color, index) => (
-            <div
-              key={`color-${index}`}
-              style={{
-                width: "30px",
-                height: "30px",
-                backgroundColor: `rgb(${convertColor(color).r}, ${convertColor(color).g}, ${convertColor(color).b})`,
-                border: "1px solid #666",
-                margin: "2px",
-              }}
-              title={`R:${color.r} G:${color.g} B:${color.b}`}
-            />
-          ))}
-        </div>
+      <h4 style={{ margin: "5px 0" }}>{paletteMode.toUpperCase()} Palette</h4>
+      <div style={{ display: "flex" }}>
+        {currentPalette.map((color, index) => (
+          <div
+            key={`color-${index}`}
+            style={{
+              width: "30px",
+              height: "30px",
+              backgroundColor: `rgb(${convertColor(color).r}, ${convertColor(color).g}, ${convertColor(color).b})`,
+              border: "1px solid #666",
+              margin: "2px",
+            }}
+            title={`R:${color.r} G:${color.g} B:${color.b}`}
+          />
+        ))}
       </div>
     </div>
   );
 });
 
+//
+// Main App Component
+//
 function App() {
-  // -- Selections and preloads --
+  // -- State and selections --
   const [selectedTile, setSelectedTile] = useState<TileCoordinates | null>(null);
-  const [selectedHeader, setSelectedHeader] = useState<string>("PalletTown.asm");
-  const [currentMapData, setCurrentMapData] = useState<CurrentMapData | null>(null);
-
-  // Add palette mode state
   const [paletteMode, setPaletteMode] = useState<'cgb' | 'sgb'>('cgb');
 
-  // Preload all tileset images.
+  // Get the current location object
+  const location = useLocation();
+  // Get the navigate function for updating the URL
+  const navigate = useNavigate();
+
+  // Read initial values from URL search parameters, provide default values.
+  const [selectedHeader, setSelectedHeader] = useState<string>(
+    new URLSearchParams(location.search).get('header') || "PalletTown.asm"
+  );
+  const [currentMapData, setCurrentMapData] = useState<CurrentMapData | null>(null);
+
+  // Preload tileset images.
   const preloadedTilesets = usePreloadedTilesets(TILESET_FILES, paletteMode);
 
-  // Refs for the various canvases.
-  const canvasRef = useRef<HTMLCanvasElement>(null); // For the original (left-side) tileset preview.
+  // Refs for canvases:
+  // canvasRef shows the original (non-animated) tileset preview.
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  // mapCanvasRef holds the static (full map) image.
+  const mapCanvasRef = useRef<HTMLCanvasElement>(null);
+  // waterOverlayCanvasRef is drawn on top of the mapCanvasRef and shows animated water.
+  const waterOverlayCanvasRef = useRef<HTMLCanvasElement>(null);
+  // previewCanvasRef shows a zoomed-in view of a selected tile.
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
-  const mapCanvasRef = useRef<HTMLCanvasElement>(null); // For the full map rendering.
 
-  // Cached data loaded at startup.
+  // Cached startup data.
   const [cachedConstants, setCachedConstants] = useState<Record<string, { width: number; height: number }>>({});
   const [cachedMappings, setCachedMappings] = useState<Record<string, string>>({});
   const [mapPointers, setMapPointers] = useState<string[]>([]);
   const [tilesetConstants, setTilesetConstants] = useState<Record<string, number>>({});
 
+  // Add new state and useEffect for recolored flower images:
+  const [recoloredFlowers, setRecoloredFlowers] = useState<Record<string, HTMLCanvasElement>>({});
+
+  //
+  // Helper: Draw grid overlay on a canvas.
+  //
   const drawGrid = useCallback((ctx: CanvasRenderingContext2D, width: number, height: number) => {
     ctx.strokeStyle = "rgba(0, 0, 0, 0.5)";
     ctx.lineWidth = 1;
@@ -365,21 +152,24 @@ function App() {
     ctx.stroke();
   }, []);
 
-  const drawTileset = useCallback(
-    (img: HTMLImageElement) => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(img, 0, 0);
-      drawGrid(ctx, img.naturalWidth, img.naturalHeight);
-    },
-    [drawGrid]
-  );
+  //
+  // Draw the original (left) tileset image with grid.
+  //
+  const drawTileset = useCallback((img: HTMLImageElement) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(img, 0, 0);
+    drawGrid(ctx, img.naturalWidth, img.naturalHeight);
+  }, [drawGrid]);
 
+  //
+  // Handle clicks on the tileset preview.
+  //
   const handleCanvasClick = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -391,7 +181,9 @@ function App() {
     setSelectedTile({ x: tileX, y: tileY });
   }, []);
 
-  // Load cached constants and mappings.
+  //
+  // Load cached constants and mappings (only once)
+  //
   useEffect(() => {
     if (Object.keys(cachedConstants).length && Object.keys(cachedMappings).length) return;
     const controller = new AbortController();
@@ -443,7 +235,9 @@ function App() {
     return () => controller.abort();
   }, [cachedConstants, cachedMappings]);
 
+  //
   // Load map pointers.
+  //
   useEffect(() => {
     async function loadMapPointers() {
       try {
@@ -464,7 +258,9 @@ function App() {
     loadMapPointers();
   }, []);
 
+  //
   // Load tileset constants.
+  //
   useEffect(() => {
     async function loadTilesetConstants() {
       try {
@@ -492,7 +288,9 @@ function App() {
     loadTilesetConstants();
   }, []);
 
-  // When a new header is selected, load all required data.
+  //
+  // When a new header is selected, load the header, map, blockset, and recolor the tileset.
+  //
   const headerRequestIdRef = useRef(0);
   useEffect(() => {
     if (
@@ -588,13 +386,18 @@ function App() {
     return () => controller.abort();
   }, [selectedHeader, cachedConstants, cachedMappings, mapPointers, preloadedTilesets, tilesetConstants, paletteMode]);
 
+  //
+  // Helper: Given a header name and map pointers, compute the map ID.
+  //
   function getMapIdFromHeader(headerName: string, pointers: string[]): number {
     const mapName = headerName.replace(".asm", "") + "_h";
     const index = pointers.findIndex((line) => line.includes(mapName));
     return index;
   }
 
-  // Draw the original tileset image (for inspection).
+  //
+  // Draw the original tileset image (for preview).
+  //
   useEffect(() => {
     const newImage = currentMapData?.header.actualBlockset + ".png" || "overworld.png";
     const preloadedImage = preloadedTilesets[newImage];
@@ -606,7 +409,9 @@ function App() {
     }
   }, [currentMapData, preloadedTilesets, drawTileset]);
 
-  // Draw the preview (zoomed) tile when a tile is selected.
+  //
+  // Draw the zoomed preview of a selected tile.
+  //
   useEffect(() => {
     if (!selectedTile || !previewCanvasRef.current || !canvasRef.current) return;
     const previewCtx = previewCanvasRef.current.getContext("2d");
@@ -627,7 +432,9 @@ function App() {
     );
   }, [selectedTile]);
 
-  // ── New Effect: Render the full map onto a single canvas ─────────
+  //
+  // Render the full static map onto a canvas.
+  //
   useEffect(() => {
     if (!currentMapData || !mapCanvasRef.current) return;
     const canvas = mapCanvasRef.current;
@@ -636,17 +443,17 @@ function App() {
     const { tileMap, recoloredTileset } = currentMapData;
     const rows = tileMap.length;
     const cols = tileMap[0]?.length || 0;
-    // Set the canvas size based on the map dimensions.
+    // Set canvas size.
     canvas.width = cols * TILE_SIZE * DISPLAY_SCALE;
     canvas.height = rows * TILE_SIZE * DISPLAY_SCALE;
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const tilesPerRow = Math.floor(recoloredTileset.width / TILE_SIZE);
+    const tilesetCols = Math.floor(recoloredTileset.width / TILE_SIZE);
     for (let y = 0; y < rows; y++) {
       for (let x = 0; x < cols; x++) {
         const tileId = tileMap[y][x];
-        const srcX = (tileId % tilesPerRow) * TILE_SIZE;
-        const srcY = Math.floor(tileId / tilesPerRow) * TILE_SIZE;
+        const srcX = (tileId % tilesetCols) * TILE_SIZE;
+        const srcY = Math.floor(tileId / tilesetCols) * TILE_SIZE;
         ctx.drawImage(
           recoloredTileset,
           srcX,
@@ -662,6 +469,223 @@ function App() {
     }
   }, [currentMapData, paletteMode]);
 
+  //
+  // EFFECT: Animate water tiles (only water) on an overlay canvas.
+  //
+  useEffect(() => {
+    if (!currentMapData || !waterOverlayCanvasRef.current || !mapCanvasRef.current) {
+      // On header change, clear remaining water overlay.
+      if (waterOverlayCanvasRef.current) {
+        const ctx = waterOverlayCanvasRef.current.getContext("2d");
+        if (ctx) ctx.clearRect(0, 0, waterOverlayCanvasRef.current.width, waterOverlayCanvasRef.current.height);
+      }
+      return;
+    }
+    // Check if the current tileset should animate water or water+flower.
+    const tsId = tilesetConstants[currentMapData.header.tileset];
+    if (tsId === undefined) return;
+    const tilesetDef = TILESETS[tsId];
+    if (tilesetDef.animation !== TileAnimation.WATER && tilesetDef.animation !== TileAnimation.WATER_FLOWER) {
+      return; // no animation needed
+    }
+
+    // Find all water tile positions in the map.
+    const waterPositions: { x: number; y: number }[] = [];
+    for (let y = 0; y < currentMapData.tileMap.length; y++) {
+      for (let x = 0; x < currentMapData.tileMap[y].length; x++) {
+        if (currentMapData.tileMap[y][x] === WATER_TILE_ID) {
+          waterPositions.push({ x, y });
+        }
+      }
+    }
+    
+    // For WATER_FLOWER, also find all flower tile positions.
+    let flowerPositions: { x: number; y: number }[] = [];
+    if (tilesetDef.animation === TileAnimation.WATER_FLOWER) {
+      for (let y = 0; y < currentMapData.tileMap.length; y++) {
+        for (let x = 0; x < currentMapData.tileMap[y].length; x++) {
+          if (currentMapData.tileMap[y][x] === FLOWER_TILE_ID) {
+            flowerPositions.push({ x, y });
+          }
+        }
+      }
+    }
+
+    // Prepare the water overlay canvas.
+    const waterCanvas = waterOverlayCanvasRef.current;
+    waterCanvas.width = mapCanvasRef.current.width;
+    waterCanvas.height = mapCanvasRef.current.height;
+    const waterCtx = waterCanvas.getContext("2d");
+    if (!waterCtx) return;
+    waterCtx.imageSmoothingEnabled = false;
+
+    // Get water tile image data from the recolored tileset.
+    const tilesetCtx = currentMapData.recoloredTileset.getContext("2d");
+    if (!tilesetCtx) return;
+    const waterTileX = (WATER_TILE_ID % TILES_PER_ROW) * TILE_SIZE;
+    const waterTileY = Math.floor(WATER_TILE_ID / TILES_PER_ROW) * TILE_SIZE;
+    let waterTileImageData = tilesetCtx.getImageData(waterTileX, waterTileY, TILE_SIZE, TILE_SIZE);
+
+    const offscreenWaterCanvas = document.createElement("canvas");
+    offscreenWaterCanvas.width = TILE_SIZE;
+    offscreenWaterCanvas.height = TILE_SIZE;
+    const offscreenCtx = offscreenWaterCanvas.getContext("2d");
+    if (!offscreenCtx) return;
+
+    // Counter for animation frames (for water and to drive flower cycles as well)
+    let waterAnimCounter = 0;
+
+    const intervalId = setInterval(() => {
+      waterAnimCounter = (waterAnimCounter + 1) & 7;
+      const direction: 'left' | 'right' = (waterAnimCounter & 4) !== 0 ? 'left' : 'right';
+      // Animate water tile image data.
+      const animateWaterTileImageData = (imgData: ImageData, dir: 'left' | 'right') => {
+        const data = imgData.data;
+        const width = imgData.width;
+        const height = imgData.height;
+        for (let row = 0; row < height; row++) {
+          if (dir === 'left') {
+            // shift row left.
+            const start = row * width * 4;
+            const firstPixel = data.slice(start, start + 4);
+            for (let col = 0; col < width - 1; col++) {
+              const src = start + (col + 1) * 4;
+              const dest = start + col * 4;
+              data[dest] = data[src];
+              data[dest + 1] = data[src + 1];
+              data[dest + 2] = data[src + 2];
+              data[dest + 3] = data[src + 3];
+            }
+            const lastStart = start + (width - 1) * 4;
+            data[lastStart] = firstPixel[0];
+            data[lastStart + 1] = firstPixel[1];
+            data[lastStart + 2] = firstPixel[2];
+            data[lastStart + 3] = firstPixel[3];
+          } else {
+            // shift row right.
+            const start = row * width * 4;
+            const lastPixel = data.slice(start + (width - 1) * 4, start + width * 4);
+            for (let col = width - 1; col > 0; col--) {
+              const src = start + (col - 1) * 4;
+              const dest = start + col * 4;
+              data[dest] = data[src];
+              data[dest + 1] = data[src + 1];
+              data[dest + 2] = data[src + 2];
+              data[dest + 3] = data[src + 3];
+            }
+            data[start] = lastPixel[0];
+            data[start + 1] = lastPixel[1];
+            data[start + 2] = lastPixel[2];
+            data[start + 3] = lastPixel[3];
+          }
+        }
+      };
+
+      animateWaterTileImageData(waterTileImageData, direction);
+      offscreenCtx.putImageData(waterTileImageData, 0, 0);
+      waterCtx.clearRect(0, 0, waterCanvas.width, waterCanvas.height);
+
+      // Draw animated water tiles.
+      waterPositions.forEach((pos) => {
+        waterCtx.drawImage(
+          offscreenWaterCanvas,
+          0,
+          0,
+          TILE_SIZE,
+          TILE_SIZE,
+          pos.x * TILE_SIZE * DISPLAY_SCALE,
+          pos.y * TILE_SIZE * DISPLAY_SCALE,
+          TILE_SIZE * DISPLAY_SCALE,
+          TILE_SIZE * DISPLAY_SCALE
+        );
+      });
+
+      // If using WATER_FLOWER, also update the flower tiles.
+      if (tilesetDef.animation === TileAnimation.WATER_FLOWER) {
+        // Decide which flower image to show using waterAnimCounter mod 4.
+        const modFlower = waterAnimCounter & 3;
+        let flowerKey: string;
+        if (modFlower < 2) {
+          flowerKey = "flower/flower1.png";
+        } else if (modFlower === 2) {
+          flowerKey = "flower/flower2.png";
+        } else {
+          flowerKey = "flower/flower3.png";
+        }
+        // Use the recolored flower image instead of the raw one.
+        const flowerImage = recoloredFlowers[flowerKey];
+        if (flowerImage) {
+          flowerPositions.forEach((pos) => {
+            waterCtx.drawImage(
+              flowerImage,
+              0,
+              0,
+              TILE_SIZE,
+              TILE_SIZE,
+              pos.x * TILE_SIZE * DISPLAY_SCALE,
+              pos.y * TILE_SIZE * DISPLAY_SCALE,
+              TILE_SIZE * DISPLAY_SCALE,
+              TILE_SIZE * DISPLAY_SCALE
+            );
+          });
+        }
+      }
+    }, WATER_ANIMATION_DELAY);
+
+    return () => {
+      clearInterval(intervalId);
+      if (waterOverlayCanvasRef.current) {
+        const ctx = waterOverlayCanvasRef.current.getContext("2d");
+        if (ctx)
+          ctx.clearRect(
+            0,
+            0,
+            waterOverlayCanvasRef.current.width,
+            waterOverlayCanvasRef.current.height
+          );
+      }
+    };
+  }, [currentMapData, tilesetConstants, preloadedTilesets, recoloredFlowers]);
+
+  //
+  // Update URL whenever selectedHeader or paletteMode changes
+  //
+  useEffect(() => {
+    const params = new URLSearchParams();
+    params.set('header', selectedHeader);
+    params.set('paletteMode', paletteMode);
+    // Replace the current URL with the new one, adding query parameters
+    navigate({ search: params.toString() }, { replace: true });
+  }, [selectedHeader, paletteMode, navigate]);
+
+  //
+  // Recoloring the Flowers:
+  //
+  useEffect(() => {
+    if (!currentMapData) return;
+    // List of flower image keys
+    const flowerKeys = ["flower/flower1.png", "flower/flower2.png", "flower/flower3.png"];
+    const newCache: Record<string, HTMLCanvasElement> = {};
+    // Get the current palette from the current map data.
+    const currentPalette = palettes[currentMapData.paletteId];
+    flowerKeys.forEach((key) => {
+      const rawImg = preloadedTilesets[key];
+      if (rawImg) {
+        // Recolor the raw flower image using the current palette.
+        newCache[key] = recolorTileset(
+          rawImg,
+          currentPalette,
+          paletteMode,
+          ["#ffffff", "#aaaaaa", "#555555", "#000000"]
+        );
+      }
+    });
+    setRecoloredFlowers(newCache);
+  }, [currentMapData, paletteMode, preloadedTilesets]);
+
+  //
+  // Render the component.
+  //
   return (
     <div className="app-container">
       <div className="image-selector">
@@ -696,69 +720,77 @@ function App() {
             <p>Map ID: {getMapIdFromHeader(selectedHeader, mapPointers)}</p>
             <p>Size Constant: {currentMapData.header.sizeConst}</p>
             <p>
+              Tileset Animation: {TILESETS[tilesetConstants[currentMapData.header.tileset] || 0].animation}
+            </p>
+            <p>
               Tileset ID: {tilesetConstants[currentMapData.header.tileset] || 0}
             </p>
             <p>
-              Tileset: {currentMapData.header.tileset} →{" "}
-              {currentMapData.header.actualBlockset}
+              Tileset: {currentMapData.header.tileset} → {currentMapData.header.actualBlockset}
             </p>
             <p>Palette ID: {currentMapData.paletteId}</p>
             {currentMapData.header.width !== undefined &&
               currentMapData.header.height !== undefined && (
                 <p>
-                  Size: {currentMapData.header.width}x
-                  {currentMapData.header.height} tiles
+                  Size: {currentMapData.header.width}x{currentMapData.header.height} tiles
                 </p>
               )}
             <p>Required Files:</p>
             <ul className="required-files" style={{ textAlign: "left" }}>
               <li>maps/{currentMapData.header.name}.blk</li>
-              <li>
-                gfx/blocksets/{currentMapData.header.actualBlockset}.bst
-              </li>
-              <li>
-                gfx/tilesets/{currentMapData.header.actualBlockset}.png
-              </li>
+              <li>gfx/blocksets/{currentMapData.header.actualBlockset}.bst</li>
+              <li>gfx/tilesets/{currentMapData.header.actualBlockset}.png</li>
             </ul>
           </div>
         )}
       </div>
 
-      <div className="main-view">
+      <div className="main-view" style={{ display: "flex", flexDirection: "column" }}>
         <div className="tileset-display">
           <canvas
             ref={canvasRef}
             onClick={handleCanvasClick}
-            style={{ cursor: "crosshair" }}
+            style={{ cursor: "crosshair", border: "1px solid #000" }}
           />
         </div>
 
-        <div className="map-display">
-          {/* Single canvas used to render the full assembled map */}
-          <canvas ref={mapCanvasRef} style={{ border: "1px solid #000" }} />
+        <div className="map-display" style={{ position: "relative", border: "1px solid #000" }}>
+          {/* The static map canvas */}
+          <canvas ref={mapCanvasRef} />
+          {/* The water overlay canvas (positioned absolutely on top) */}
+          <canvas
+            ref={waterOverlayCanvasRef}
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              padding: "0px", //needed to offset the border from map-display defined in App.css
+              pointerEvents: "none",
+            }}
+          />
         </div>
 
-        <div className="tile-preview">
-          {selectedTile && (
-            <>
-              <canvas
-                ref={previewCanvasRef}
-                width={TILE_SIZE * ZOOM_FACTOR}
-                height={TILE_SIZE * ZOOM_FACTOR}
-              />
-              <p>
-                Tile Coordinates: ({selectedTile.x}, {selectedTile.y})
-              </p>
-            </>
+        <div className="preview-palette-container">
+          <div className="tile-preview">
+            {selectedTile && (
+              <>
+                <canvas
+                  ref={previewCanvasRef}
+                  width={TILE_SIZE * ZOOM_FACTOR}
+                  height={TILE_SIZE * ZOOM_FACTOR}
+                  style={{ border: "1px solid #000" }}
+                />
+                <p>
+                  Tile Coordinates: ({selectedTile.x}, {selectedTile.y})
+                </p>
+              </>
+            )}
+          </div>
+
+          {currentMapData && (
+            <PaletteDisplay paletteId={currentMapData.paletteId} paletteMode={paletteMode} />
           )}
         </div>
-
-        {currentMapData && (
-          <PaletteDisplay 
-            paletteId={currentMapData.paletteId} 
-            paletteMode={paletteMode}
-          />
-        )}
       </div>
     </div>
   );

@@ -95,8 +95,8 @@
   margin: 20px;
   overflow: auto;
   max-height: 80vh;
-  border: 1px solid #ccc;
-  padding: 10px;
+  border: 10px solid #851313;
+  padding: 0px;
   background: #f0f0f0;
 }
 
@@ -145,4 +145,48 @@
 
 .required-files li {
   margin: 2px 0;
+}
+
+.main-view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  #root {
+    padding: 1rem;
+  }
+  
+  /* Stack the controls and canvases vertically */
+  .image-selector, .preview-palette-container, .main-view {
+    width: 100%;
+  }
+  
+  /* Make interactive controls larger for touch input */
+  select, button {
+    font-size: 1.1rem;
+    padding: 0.8em 1.5em;
+  }
+  
+  /* Scale down the canvases to fit within the viewport nicely */
+  .tileset-display canvas,
+  .map-display canvas,
+  .preview-palette-container canvas {
+    width: 100%;
+    max-width: 340px; /* Example value: adjust based on actual available width */
+    height: auto;
+  }
+  
+  /* If the canvases are side-by-side on desktop, force them into a single column on mobile */
+  .map-display {
+    margin: 10px auto;
+  }
+  
+  /* Adjust map info styling for readability */
+  .map-info {
+    padding: 8px;
+    font-size: 0.9rem;
+  }
 }
