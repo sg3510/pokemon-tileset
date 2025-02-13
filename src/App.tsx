@@ -1,6 +1,6 @@
 /* App.tsx */
 import React, { useState, useRef, useEffect, useCallback, memo } from "react";
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from "react-router-dom";
 import "./App.css";
 import { loadAndAssembleMap } from "./blockset";
 import { usePreloadedTilesets } from "./hooks/usePreloadedTilesets";
@@ -9,8 +9,14 @@ import { palettes } from "./palettes/palettes";
 import { recolorTileset } from "./palettes/useRecoloredTileset";
 import { TILESETS, TileAnimation } from "./tile/tileset-constants";
 import { AVAILABLE_HEADERS, TILESET_FILES } from "./constants/const";
-import { BgEvent, extractMapObjects, ObjectEvent, WarpEvent } from "./mapObjects/extractMapObjects";
- 
+import {
+  BgEvent,
+  extractMapObjects,
+  ObjectEvent,
+  WarpEvent,
+} from "./mapObjects/extractMapObjects";
+import { processSprite } from "./sprites/processSprite";
+
 //
 // Constants for rendering
 //
@@ -18,17 +24,17 @@ const TILE_SIZE = 8;
 const BLOCK_SIZE = 16;
 const ZOOM_FACTOR = 4;
 const DISPLAY_SCALE = 2; // So a tile on screen is 8*2 = 16 px
- 
+
 // The water tile is always tile number 20 (0x14)
 const WATER_TILE_ID = 20;
 // The flower tile is always tile number 3 (0x03)
 const FLOWER_TILE_ID = 3;
 // The tileset is assumed to be 16 columns wide.
 const TILES_PER_ROW = 16;
- 
+
 // How often (in ms) the water pixels shift.
 const WATER_ANIMATION_DELAY = 275;
- 
+
 //
 // Interfaces
 //
@@ -40,13 +46,13 @@ interface MapHeader {
   height?: number;
   actualBlockset: string;
 }
- 
+
 interface MapObjectData {
   warp_events: WarpEvent[];
   bg_events: BgEvent[];
   object_events: ObjectEvent[];
 }
- 
+
 interface CurrentMapData {
   header: MapHeader;
   tileMap: number[][];
@@ -54,76 +60,84 @@ interface CurrentMapData {
   paletteId: number;
   mapObjects?: MapObjectData;
 }
- 
+
 interface TileCoordinates {
   x: number;
   y: number;
 }
- 
+
 interface PaletteDisplayProps {
   paletteId: number;
-  paletteMode: 'cgb' | 'sgb';
+  paletteMode: "cgb" | "sgb";
 }
- 
+
 //
 // A simple PaletteDisplay component
 //
-const PaletteDisplay = memo(({ paletteId, paletteMode }: PaletteDisplayProps) => {
-  const palette = palettes[paletteId];
-  if (!palette) return null;
- 
-  const convertColor = (color: { r: number; g: number; b: number }) => ({
-    r: Math.round((color.r / 31) * 255),
-    g: Math.round((color.g / 31) * 255),
-    b: Math.round((color.b / 31) * 255),
-  });
- 
-  const currentPalette = paletteMode === 'cgb' ? palette.cgb : palette.sgb;
- 
-  return (
-    <div style={{ padding: "10px" }}>
-      <h4 style={{ margin: "5px 0" }}>{paletteMode.toUpperCase()} Palette</h4>
-      <div style={{ display: "flex" }}>
-        {currentPalette.map((color, index) => (
-          <div
-            key={`color-${index}`}
-            style={{
-              width: "30px",
-              height: "30px",
-              backgroundColor: `rgb(${convertColor(color).r}, ${convertColor(color).g}, ${convertColor(color).b})`,
-              border: "1px solid #666",
-              margin: "2px",
-            }}
-            title={`R:${color.r} G:${color.g} B:${color.b}`}
-          />
-        ))}
+const PaletteDisplay = memo(
+  ({ paletteId, paletteMode }: PaletteDisplayProps) => {
+    const palette = palettes[paletteId];
+    if (!palette) return null;
+
+    const convertColor = (color: { r: number; g: number; b: number }) => ({
+      r: Math.round((color.r / 31) * 255),
+      g: Math.round((color.g / 31) * 255),
+      b: Math.round((color.b / 31) * 255),
+    });
+
+    const currentPalette = paletteMode === "cgb" ? palette.cgb : palette.sgb;
+
+    return (
+      <div style={{ padding: "10px" }}>
+        <h4 style={{ margin: "5px 0" }}>{paletteMode.toUpperCase()} Palette</h4>
+        <div style={{ display: "flex" }}>
+          {currentPalette.map((color, index) => (
+            <div
+              key={`color-${index}`}
+              style={{
+                width: "30px",
+                height: "30px",
+                backgroundColor: `rgb(${convertColor(color).r}, ${
+                  convertColor(color).g
+                }, ${convertColor(color).b})`,
+                border: "1px solid #666",
+                margin: "2px",
+              }}
+              title={`R:${color.r} G:${color.g} B:${color.b}`}
+            />
+          ))}
+        </div>
       </div>
-    </div>
-  );
-});
- 
+    );
+  }
+);
+
 //
 // Main App Component
 //
 function App() {
   // -- State and selections --
-  const [selectedTile, setSelectedTile] = useState<TileCoordinates | null>(null);
-  const [paletteMode, setPaletteMode] = useState<'cgb' | 'sgb'>('cgb');
- 
+  const [selectedTile, setSelectedTile] = useState<TileCoordinates | null>(
+    null
+  );
+  const [paletteMode, setPaletteMode] = useState<"cgb" | "sgb">("cgb");
+
   // Get the current location object
   const location = useLocation();
   // Get the navigate function for updating the URL
   const navigate = useNavigate();
- 
+
   // Read initial values from URL search parameters, provide default values.
   const [selectedHeader, setSelectedHeader] = useState<string>(
-    new URLSearchParams(location.search).get('header') || "PalletTown.asm"
+    new URLSearchParams(location.search).get("header") || "PalletTown.asm"
   );
-  const [currentMapData, setCurrentMapData] = useState<CurrentMapData | null>(null);
- 
+  const [currentMapData, setCurrentMapData] = useState<CurrentMapData | null>(
+    null
+  );
+
   // Preload tileset images.
   const preloadedTilesets = usePreloadedTilesets(TILESET_FILES, paletteMode);
- 
+
   // Refs for canvases:
   // canvasRef shows the original (non-animated) tileset preview.
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -135,22 +149,39 @@ function App() {
   const eventOverlayCanvasRef = useRef<HTMLCanvasElement>(null);
   // previewCanvasRef shows a zoomed-in view of a selected tile.
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
- 
+
   // Cached startup data.
-  const [cachedConstants, setCachedConstants] = useState<Record<string, { width: number; height: number }>>({});
-  const [cachedMappings, setCachedMappings] = useState<Record<string, string>>({});
+  const [cachedConstants, setCachedConstants] = useState<
+    Record<string, { width: number; height: number }>
+  >({});
+  const [cachedMappings, setCachedMappings] = useState<Record<string, string>>(
+    {}
+  );
   const [mapPointers, setMapPointers] = useState<string[]>([]);
-  const [tilesetConstants, setTilesetConstants] = useState<Record<string, number>>({});
- 
+  const [tilesetConstants, setTilesetConstants] = useState<
+    Record<string, number>
+  >({});
+
   // Add new state and useEffect for recolored flower images:
-  const [recoloredFlowers, setRecoloredFlowers] = useState<Record<string, HTMLCanvasElement>>({});
- 
+  const [recoloredFlowers, setRecoloredFlowers] = useState<
+    Record<string, HTMLCanvasElement>
+  >({});
+
   // Add state for last map (defaulting to PalletTown.asm)
   const [lastValidMap, setLastValidMap] = useState<string>("PalletTown.asm");
 
+  // Create a cache ref for processed sprite canvases.
+  const spriteCacheRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
+  // A state to trigger re-draw when a sprite loads.
+  const [spriteCacheVersion, setSpriteCacheVersion] = useState(0);
+
   // Update lastValidMap whenever we successfully change maps
   useEffect(() => {
-    if (selectedHeader && selectedHeader !== "LAST_MAP" && selectedHeader !== lastValidMap) {
+    if (
+      selectedHeader &&
+      selectedHeader !== "LAST_MAP" &&
+      selectedHeader !== lastValidMap
+    ) {
       const previousMap = lastValidMap;
       setLastValidMap(previousMap);
     }
@@ -160,77 +191,98 @@ function App() {
   const handleMapChange = (newMap: string) => {
     // Only update lastValidMap if current map is outdoor (ID <= 0x24)
     const currentMapId = getMapIdFromHeader(selectedHeader, mapPointers);
-    if (newMap !== "LAST_MAP" && newMap !== selectedHeader && currentMapId <= 0x24) {
+    if (
+      newMap !== "LAST_MAP" &&
+      newMap !== selectedHeader &&
+      currentMapId <= 0x24
+    ) {
       setLastValidMap(selectedHeader);
     }
     setSelectedHeader(newMap);
   };
- 
+
   //
   // Helper: Draw grid overlay on a canvas.
   //
-  const drawGrid = useCallback((ctx: CanvasRenderingContext2D, width: number, height: number) => {
-    ctx.strokeStyle = "rgba(0, 0, 0, 0.5)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let x = 0; x <= width; x += TILE_SIZE) {
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, height);
-    }
-    for (let y = 0; y <= height; y += TILE_SIZE) {
-      ctx.moveTo(0, y);
-      ctx.lineTo(width, y);
-    }
-    ctx.stroke();
-  }, []);
- 
+  const drawGrid = useCallback(
+    (ctx: CanvasRenderingContext2D, width: number, height: number) => {
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.5)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let x = 0; x <= width; x += TILE_SIZE) {
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, height);
+      }
+      for (let y = 0; y <= height; y += TILE_SIZE) {
+        ctx.moveTo(0, y);
+        ctx.lineTo(width, y);
+      }
+      ctx.stroke();
+    },
+    []
+  );
+
   //
   // Draw the original (left) tileset image with grid.
   //
-  const drawTileset = useCallback((img: HTMLImageElement) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    canvas.width = img.naturalWidth;
-    canvas.height = img.naturalHeight;
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(img, 0, 0);
-    drawGrid(ctx, img.naturalWidth, img.naturalHeight);
-  }, [drawGrid]);
- 
+  const drawTileset = useCallback(
+    (img: HTMLImageElement) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(img, 0, 0);
+      drawGrid(ctx, img.naturalWidth, img.naturalHeight);
+    },
+    [drawGrid]
+  );
+
   //
   // Handle clicks on the tileset preview.
   //
-  const handleCanvasClick = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
-    const tileX = Math.floor(x / TILE_SIZE);
-    const tileY = Math.floor(y / TILE_SIZE);
-    setSelectedTile({ x: tileX, y: tileY });
-  }, []);
- 
+  const handleCanvasClick = useCallback(
+    (event: React.MouseEvent<HTMLCanvasElement>) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      const tileX = Math.floor(x / TILE_SIZE);
+      const tileY = Math.floor(y / TILE_SIZE);
+      setSelectedTile({ x: tileX, y: tileY });
+    },
+    []
+  );
+
   //
   // Load cached constants and mappings (only once)
   //
   useEffect(() => {
-    if (Object.keys(cachedConstants).length && Object.keys(cachedMappings).length) return;
+    if (
+      Object.keys(cachedConstants).length &&
+      Object.keys(cachedMappings).length
+    )
+      return;
     const controller = new AbortController();
     (async function fetchConstantsAndMappings() {
       try {
         const [constRes, mappingRes] = await Promise.all([
-          fetch(`/pokemon-tileset/pkassets/constants/map_constants.asm`, { signal: controller.signal }),
-          fetch(`/pokemon-tileset/pkassets/gfx/tilesets.asm`, { signal: controller.signal }),
+          fetch(`/pokemon-tileset/pkassets/constants/map_constants.asm`, {
+            signal: controller.signal,
+          }),
+          fetch(`/pokemon-tileset/pkassets/gfx/tilesets.asm`, {
+            signal: controller.signal,
+          }),
         ]);
         if (!constRes.ok || !mappingRes.ok) {
           throw new Error("Failed to load constants or mappings");
         }
         const constantsText = await constRes.text();
         const mappingsText = await mappingRes.text();
- 
+
         const constants: Record<string, { width: number; height: number }> = {};
         constantsText.split("\n").forEach((line) => {
           const match = line.match(/\s*map_const\s+(\w+),\s*(\d+),\s*(\d+)/);
@@ -241,14 +293,16 @@ function App() {
             };
           }
         });
- 
+
         const mappings: Record<string, string> = {};
         const mappingLines = mappingsText.split("\n");
         for (let i = 0; i < mappingLines.length; i++) {
           const gfxMatch = mappingLines[i].match(/(\w+)_GFX::/);
           if (gfxMatch) {
             for (let j = i; j < mappingLines.length; j++) {
-              const blocksetMatch = mappingLines[j].match(/INCBIN\s+"gfx\/blocksets\/(\w+)\.bst"/);
+              const blocksetMatch = mappingLines[j].match(
+                /INCBIN\s+"gfx\/blocksets\/(\w+)\.bst"/
+              );
               if (blocksetMatch) {
                 mappings[gfxMatch[1].toUpperCase()] = blocksetMatch[1];
                 break;
@@ -266,14 +320,16 @@ function App() {
     })();
     return () => controller.abort();
   }, [cachedConstants, cachedMappings]);
- 
+
   //
   // Load map pointers.
   //
   useEffect(() => {
     async function loadMapPointers() {
       try {
-        const response = await fetch("/pokemon-tileset/pkassets/data/maps/map_header_pointers.asm");
+        const response = await fetch(
+          "/pokemon-tileset/pkassets/data/maps/map_header_pointers.asm"
+        );
         if (!response.ok) {
           throw new Error(`HTTP error! Status: ${response.status}`);
         }
@@ -289,14 +345,16 @@ function App() {
     }
     loadMapPointers();
   }, []);
- 
+
   //
   // Load tileset constants.
   //
   useEffect(() => {
     async function loadTilesetConstants() {
       try {
-        const response = await fetch("/pokemon-tileset/pkassets/constants/tileset_constants.asm");
+        const response = await fetch(
+          "/pokemon-tileset/pkassets/constants/tileset_constants.asm"
+        );
         if (!response.ok) {
           throw new Error(`HTTP error! Status: ${response.status}`);
         }
@@ -319,7 +377,7 @@ function App() {
     }
     loadTilesetConstants();
   }, []);
- 
+
   //
   // When a new header is selected, load the header, map, blockset, and recolor the tileset.
   //
@@ -333,31 +391,38 @@ function App() {
       Object.keys(tilesetConstants).length === 0
     )
       return;
- 
+
     headerRequestIdRef.current++;
     const currentRequestId = headerRequestIdRef.current;
     const controller = new AbortController();
- 
+
     (async function loadMapChain() {
       try {
         // 1. Fetch and parse the header file.
-        const headerResponse = await fetch(`/pokemon-tileset/pkassets/data/maps/headers/${selectedHeader}`, {
-          signal: controller.signal,
-        });
+        const headerResponse = await fetch(
+          `/pokemon-tileset/pkassets/data/maps/headers/${selectedHeader}`,
+          {
+            signal: controller.signal,
+          }
+        );
         if (!headerResponse.ok)
           throw new Error(`HTTP error! Status: ${headerResponse.status}`);
         const headerText = await headerResponse.text();
-        const headerMatch = headerText.match(/map_header\s+(\w+),\s+(\w+),\s+(\w+)/);
+        const headerMatch = headerText.match(
+          /map_header\s+(\w+),\s+(\w+),\s+(\w+)/
+        );
         if (!headerMatch) throw new Error("Failed to parse header file");
         if (currentRequestId !== headerRequestIdRef.current) return;
- 
+
         const headerName = headerMatch[1];
         const sizeConst = headerMatch[2];
         const tilesetName = headerMatch[3].toUpperCase();
         const dimensions = cachedConstants[sizeConst];
         if (!dimensions)
           throw new Error("Map dimensions not found for " + sizeConst);
-        const baseBlockset = (cachedMappings[tilesetName] || tilesetName.toLowerCase()).replace(/_[1-9]$/, "");
+        const baseBlockset = (
+          cachedMappings[tilesetName] || tilesetName.toLowerCase()
+        ).replace(/_[1-9]$/, "");
         const newHeader: MapHeader = {
           name: headerName,
           sizeConst,
@@ -366,36 +431,48 @@ function App() {
           width: dimensions.width,
           height: dimensions.height,
         };
- 
+
         // 2. Determine file names.
         const newSelectedMap = `${newHeader.name}.blk`;
         const newSelectedBlockset = `${newHeader.actualBlockset}.bst`;
         const newSelectedImage = `${newHeader.actualBlockset}.png`;
         const newSelectedObjectFile = `${newHeader.name}.asm`;
- 
+
         // 3. Ensure the new tileset image is preloaded.
         const originalTileset = preloadedTilesets[newSelectedImage];
         if (!originalTileset)
           throw new Error(`Tileset image ${newSelectedImage} not loaded`);
- 
+
         // 4. Fetch the map and blockset files concurrently.
         const [blkResponse, bstResponse, objResponse] = await Promise.all([
-          fetch(`/pokemon-tileset/pkassets/maps/${newSelectedMap}`, { signal: controller.signal }),
-          fetch(`/pokemon-tileset/pkassets/blocksets/${newSelectedBlockset}`, { signal: controller.signal }),
-          fetch(`/pokemon-tileset/pkassets/data/maps/objects/${newSelectedObjectFile}`, { signal: controller.signal }),
+          fetch(`/pokemon-tileset/pkassets/maps/${newSelectedMap}`, {
+            signal: controller.signal,
+          }),
+          fetch(`/pokemon-tileset/pkassets/blocksets/${newSelectedBlockset}`, {
+            signal: controller.signal,
+          }),
+          fetch(
+            `/pokemon-tileset/pkassets/data/maps/objects/${newSelectedObjectFile}`,
+            { signal: controller.signal }
+          ),
         ]);
         if (!blkResponse.ok || !bstResponse.ok || !objResponse.ok)
           throw new Error("Error loading map, blockset, or object file");
         const blkData = new Uint8Array(await blkResponse.arrayBuffer());
         const blocksetData = new Uint8Array(await bstResponse.arrayBuffer());
         const objectAsmContent = await objResponse.text();
-        const map = loadAndAssembleMap(blkData, blocksetData, dimensions.width, dimensions.height);
- 
+        const map = loadAndAssembleMap(
+          blkData,
+          blocksetData,
+          dimensions.width,
+          dimensions.height
+        );
+
         // 5. Compute map ID and tileset ID then determine the palette ID.
         const mapId = getMapIdFromHeader(selectedHeader, mapPointers);
         const tilesetId = tilesetConstants[newHeader.tileset] || 0;
         const paletteId = getPaletteId(mapId, tilesetId);
- 
+
         // 6. Recolor the tileset image.
         const recoloredTileset = recolorTileset(
           originalTileset,
@@ -403,10 +480,10 @@ function App() {
           paletteMode,
           ["#ffffff", "#aaaaaa", "#555555", "#000000"]
         );
- 
+
         // 7. Extract map objects.
         const mapObjects = extractMapObjects(objectAsmContent);
- 
+
         // 8. Update the combined state.
         setCurrentMapData({
           header: newHeader,
@@ -421,10 +498,18 @@ function App() {
         }
       }
     })();
- 
+
     return () => controller.abort();
-  }, [selectedHeader, cachedConstants, cachedMappings, mapPointers, preloadedTilesets, tilesetConstants, paletteMode]);
- 
+  }, [
+    selectedHeader,
+    cachedConstants,
+    cachedMappings,
+    mapPointers,
+    preloadedTilesets,
+    tilesetConstants,
+    paletteMode,
+  ]);
+
   //
   // Helper: Given a header name and map pointers, compute the map ID.
   //
@@ -433,12 +518,13 @@ function App() {
     const index = pointers.findIndex((line) => line.includes(mapName));
     return index;
   }
- 
+
   //
   // Draw the original tileset image (for preview).
   //
   useEffect(() => {
-    const newImage = currentMapData?.header.actualBlockset + ".png" || "overworld.png";
+    const newImage =
+      currentMapData?.header.actualBlockset + ".png" || "overworld.png";
     const preloadedImage = preloadedTilesets[newImage];
     if (!preloadedImage || !canvasRef.current) return;
     if (preloadedImage.complete) {
@@ -447,16 +533,22 @@ function App() {
       preloadedImage.onload = () => drawTileset(preloadedImage);
     }
   }, [currentMapData, preloadedTilesets, drawTileset]);
- 
+
   //
   // Draw the zoomed preview of a selected tile.
   //
   useEffect(() => {
-    if (!selectedTile || !previewCanvasRef.current || !canvasRef.current) return;
+    if (!selectedTile || !previewCanvasRef.current || !canvasRef.current)
+      return;
     const previewCtx = previewCanvasRef.current.getContext("2d");
     if (!previewCtx) return;
     const sourceCanvas = canvasRef.current;
-    previewCtx.clearRect(0, 0, previewCanvasRef.current.width, previewCanvasRef.current.height);
+    previewCtx.clearRect(
+      0,
+      0,
+      previewCanvasRef.current.width,
+      previewCanvasRef.current.height
+    );
     previewCtx.imageSmoothingEnabled = false;
     previewCtx.drawImage(
       sourceCanvas,
@@ -470,7 +562,7 @@ function App() {
       TILE_SIZE * ZOOM_FACTOR
     );
   }, [selectedTile]);
- 
+
   //
   // Render the full static map onto a canvas.
   //
@@ -507,16 +599,26 @@ function App() {
       }
     }
   }, [currentMapData, paletteMode]);
- 
+
   //
   // EFFECT: Animate water tiles (only water) on an overlay canvas.
   //
   useEffect(() => {
-    if (!currentMapData || !waterOverlayCanvasRef.current || !mapCanvasRef.current) {
+    if (
+      !currentMapData ||
+      !waterOverlayCanvasRef.current ||
+      !mapCanvasRef.current
+    ) {
       // On header change, clear remaining water overlay.
       if (waterOverlayCanvasRef.current) {
         const ctx = waterOverlayCanvasRef.current.getContext("2d");
-        if (ctx) ctx.clearRect(0, 0, waterOverlayCanvasRef.current.width, waterOverlayCanvasRef.current.height);
+        if (ctx)
+          ctx.clearRect(
+            0,
+            0,
+            waterOverlayCanvasRef.current.width,
+            waterOverlayCanvasRef.current.height
+          );
       }
       return;
     }
@@ -524,10 +626,13 @@ function App() {
     const tsId = tilesetConstants[currentMapData.header.tileset];
     if (tsId === undefined) return;
     const tilesetDef = TILESETS[tsId];
-    if (tilesetDef.animation !== TileAnimation.WATER && tilesetDef.animation !== TileAnimation.WATER_FLOWER) {
+    if (
+      tilesetDef.animation !== TileAnimation.WATER &&
+      tilesetDef.animation !== TileAnimation.WATER_FLOWER
+    ) {
       return; // no animation needed
     }
- 
+
     // Find all water tile positions in the map.
     const waterPositions: { x: number; y: number }[] = [];
     for (let y = 0; y < currentMapData.tileMap.length; y++) {
@@ -537,7 +642,7 @@ function App() {
         }
       }
     }
-    
+
     // For WATER_FLOWER, also find all flower tile positions.
     let flowerPositions: { x: number; y: number }[] = [];
     if (tilesetDef.animation === TileAnimation.WATER_FLOWER) {
@@ -549,7 +654,7 @@ function App() {
         }
       }
     }
- 
+
     // Prepare the water overlay canvas.
     const waterCanvas = waterOverlayCanvasRef.current;
     waterCanvas.width = mapCanvasRef.current.width;
@@ -557,33 +662,42 @@ function App() {
     const waterCtx = waterCanvas.getContext("2d");
     if (!waterCtx) return;
     waterCtx.imageSmoothingEnabled = false;
- 
+
     // Get water tile image data from the recolored tileset.
     const tilesetCtx = currentMapData.recoloredTileset.getContext("2d");
     if (!tilesetCtx) return;
     const waterTileX = (WATER_TILE_ID % TILES_PER_ROW) * TILE_SIZE;
     const waterTileY = Math.floor(WATER_TILE_ID / TILES_PER_ROW) * TILE_SIZE;
-    let waterTileImageData = tilesetCtx.getImageData(waterTileX, waterTileY, TILE_SIZE, TILE_SIZE);
- 
+    let waterTileImageData = tilesetCtx.getImageData(
+      waterTileX,
+      waterTileY,
+      TILE_SIZE,
+      TILE_SIZE
+    );
+
     const offscreenWaterCanvas = document.createElement("canvas");
     offscreenWaterCanvas.width = TILE_SIZE;
     offscreenWaterCanvas.height = TILE_SIZE;
     const offscreenCtx = offscreenWaterCanvas.getContext("2d");
     if (!offscreenCtx) return;
- 
+
     // Counter for animation frames (for water and to drive flower cycles as well)
     let waterAnimCounter = 0;
- 
+
     const intervalId = setInterval(() => {
       waterAnimCounter = (waterAnimCounter + 1) & 7;
-      const direction: 'left' | 'right' = (waterAnimCounter & 4) !== 0 ? 'left' : 'right';
+      const direction: "left" | "right" =
+        (waterAnimCounter & 4) !== 0 ? "left" : "right";
       // Animate water tile image data.
-      const animateWaterTileImageData = (imgData: ImageData, dir: 'left' | 'right') => {
+      const animateWaterTileImageData = (
+        imgData: ImageData,
+        dir: "left" | "right"
+      ) => {
         const data = imgData.data;
         const width = imgData.width;
         const height = imgData.height;
         for (let row = 0; row < height; row++) {
-          if (dir === 'left') {
+          if (dir === "left") {
             const start = row * width * 4;
             const firstPixel = data.slice(start, start + 4);
             for (let col = 0; col < width - 1; col++) {
@@ -601,7 +715,10 @@ function App() {
             data[lastStart + 3] = firstPixel[3];
           } else {
             const start = row * width * 4;
-            const lastPixel = data.slice(start + (width - 1) * 4, start + width * 4);
+            const lastPixel = data.slice(
+              start + (width - 1) * 4,
+              start + width * 4
+            );
             for (let col = width - 1; col > 0; col--) {
               const src = start + (col - 1) * 4;
               const dest = start + col * 4;
@@ -617,11 +734,11 @@ function App() {
           }
         }
       };
- 
+
       animateWaterTileImageData(waterTileImageData, direction);
       offscreenCtx.putImageData(waterTileImageData, 0, 0);
       waterCtx.clearRect(0, 0, waterCanvas.width, waterCanvas.height);
- 
+
       // Draw animated water tiles.
       waterPositions.forEach((pos) => {
         waterCtx.drawImage(
@@ -636,7 +753,7 @@ function App() {
           TILE_SIZE * DISPLAY_SCALE
         );
       });
- 
+
       // If using WATER_FLOWER, also update the flower tiles.
       if (tilesetDef.animation === TileAnimation.WATER_FLOWER) {
         const modFlower = waterAnimCounter & 3;
@@ -666,7 +783,7 @@ function App() {
         }
       }
     }, WATER_ANIMATION_DELAY);
- 
+
     return () => {
       clearInterval(intervalId);
       if (waterOverlayCanvasRef.current) {
@@ -681,11 +798,13 @@ function App() {
       }
     };
   }, [currentMapData, tilesetConstants, preloadedTilesets, recoloredFlowers]);
- 
+
   //
   // NEW: Effect to draw warp event markers on an overlay canvas.
   //
-// NEW: Effect to draw warp and object event markers on an overlay canvas.
+  // NEW: Effect to draw warp and object event markers on an overlay canvas.
+
+
 useEffect(() => {
   if (
     !currentMapData ||
@@ -698,19 +817,18 @@ useEffect(() => {
   const canvas = eventOverlayCanvasRef.current;
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
-  // Ensure overlay canvas matches the map canvas dimensions.
+  ctx.imageSmoothingEnabled = false;
   canvas.width = mapCanvasRef.current.width;
   canvas.height = mapCanvasRef.current.height;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+  // Draw warp events as before.
   ctx.font = "bold 12px sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-
-  // Draw warp events as "W" in red.
   ctx.fillStyle = "red";
   currentMapData.mapObjects.warp_events
-    .filter((warp) => !warp.isDebug) // Filter out debug warps.
+    .filter((warp) => !warp.isDebug)
     .forEach((warp) => {
       const displayX = warp.x * BLOCK_SIZE * DISPLAY_SCALE;
       const displayY = warp.y * BLOCK_SIZE * DISPLAY_SCALE;
@@ -721,19 +839,60 @@ useEffect(() => {
       );
     });
 
-  // Draw object events as "P" in blue.
-  ctx.fillStyle = "blue";
+  // Draw object events as sprites.
   currentMapData.mapObjects.object_events.forEach((objEvent) => {
-    const displayX = objEvent.x * BLOCK_SIZE * DISPLAY_SCALE;
-    const displayY = objEvent.y * BLOCK_SIZE * DISPLAY_SCALE;
-    ctx.fillText(
-      "P",
-      displayX + (BLOCK_SIZE * DISPLAY_SCALE) / 2,
-      displayY + (BLOCK_SIZE * DISPLAY_SCALE) / 2
-    );
+    // Determine sprite filename.
+    // e.g. "SPRITE_YOUNGSTER" becomes "youngster.png"
+    const spriteKey = objEvent.sprite;
+    const spriteFileName = spriteKey.replace("SPRITE_", "").toLowerCase() + ".png";
+
+    // Determine orientation from the facingDirection field.
+    // If facingDirection is "NONE" or missing, default to "down".
+    let orientation: 'down' | 'up' | 'left' | 'right' = 'down';
+    if (objEvent.facingDirection) {
+      const dir = objEvent.facingDirection.toLowerCase();
+      if (dir === 'up' || dir === 'left' || dir === 'right') {
+        orientation = dir as 'up' | 'left' | 'right';
+      }
+    }
+
+    // Use a cache key that includes orientation.
+    const cacheKey = spriteKey + "_" + orientation;
+
+    const cachedSprite = spriteCacheRef.current.get(cacheKey);
+    if (cachedSprite) {
+      const displayX = objEvent.x * BLOCK_SIZE * DISPLAY_SCALE;
+      const displayY = objEvent.y * BLOCK_SIZE * DISPLAY_SCALE;
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(
+        cachedSprite,
+        0,
+        0,
+        16,
+        16,
+        displayX,
+        displayY,
+        16 * DISPLAY_SCALE,
+        16 * DISPLAY_SCALE
+      );
+    } else {
+      // Not cached: load, process, cache, then trigger a re-render.
+      const img = new Image();
+      img.src = `/pokemon-tileset/pkassets/gfx/sprites/${spriteFileName}`;
+      img.onload = () => {
+        const processedSprite = processSprite(
+          img,
+          palettes[currentMapData.paletteId],
+          paletteMode,
+          orientation
+        );
+        spriteCacheRef.current.set(cacheKey, processedSprite);
+        setSpriteCacheVersion(v => v + 1);
+      };
+    }
   });
-}, [currentMapData]);
- 
+}, [currentMapData, paletteMode, spriteCacheVersion]);
+
   //
   // NEW: Handle clicks on the event overlay canvas.
   //
@@ -746,9 +905,10 @@ useEffect(() => {
     const tileWidth = BLOCK_SIZE * DISPLAY_SCALE;
     const tileX = Math.floor(clickX / tileWidth);
     const tileY = Math.floor(clickY / tileWidth);
-    const warpEvent = currentMapData.mapObjects.warp_events
-      .find(event => !event.isDebug && event.x === tileX && event.y === tileY);
-    
+    const warpEvent = currentMapData.mapObjects.warp_events.find(
+      (event) => !event.isDebug && event.x === tileX && event.y === tileY
+    );
+
     if (warpEvent) {
       // Special handling for LAST_MAP
       if (warpEvent.targetMap === "LAST_MAP") {
@@ -757,62 +917,69 @@ useEffect(() => {
       }
 
       // Convert ROUTE_18_GATE_1F to Route18Gate1F.asm
-      const targetHeader = warpEvent.targetMap
-        .split('_')
-        .map((word) => {
-          // Keep 1F, 2F, B1F, B2F, etc. uppercase at the end
-          if (word.match(/^[B]?[0-9]+F$/)) {
-            return word;
-          }
-          return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
-        })
-        .join('') + '.asm';
+      const targetHeader =
+        warpEvent.targetMap
+          .split("_")
+          .map((word) => {
+            // Keep 1F, 2F, B1F, B2F, etc. uppercase at the end
+            if (word.match(/^[B]?[0-9]+F$/)) {
+              return word;
+            }
+            return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+          })
+          .join("") + ".asm";
 
       // Find the matching header, ignoring case
-      const matchingHeader = AVAILABLE_HEADERS.find(header => 
-        header.toLowerCase() === targetHeader.toLowerCase()
+      const matchingHeader = AVAILABLE_HEADERS.find(
+        (header) => header.toLowerCase() === targetHeader.toLowerCase()
       );
 
       if (matchingHeader) {
         handleMapChange(matchingHeader);
       } else {
-        console.warn(`Target map ${targetHeader} not found in available headers`);
+        console.warn(
+          `Target map ${targetHeader} not found in available headers`
+        );
       }
     }
   };
- 
+
   //
   // Update URL whenever selectedHeader or paletteMode changes
   //
   useEffect(() => {
     const params = new URLSearchParams();
-    params.set('header', selectedHeader);
-    params.set('paletteMode', paletteMode);
+    params.set("header", selectedHeader);
+    params.set("paletteMode", paletteMode);
     navigate({ search: params.toString() }, { replace: true });
   }, [selectedHeader, paletteMode, navigate]);
- 
+
   //
   // Recoloring the Flowers:
   //
   useEffect(() => {
     if (!currentMapData) return;
-    const flowerKeys = ["flower/flower1.png", "flower/flower2.png", "flower/flower3.png"];
+    const flowerKeys = [
+      "flower/flower1.png",
+      "flower/flower2.png",
+      "flower/flower3.png",
+    ];
     const newCache: Record<string, HTMLCanvasElement> = {};
     const currentPalette = palettes[currentMapData.paletteId];
     flowerKeys.forEach((key) => {
       const rawImg = preloadedTilesets[key];
       if (rawImg) {
-        newCache[key] = recolorTileset(
-          rawImg,
-          currentPalette,
-          paletteMode,
-          ["#ffffff", "#aaaaaa", "#555555", "#000000"]
-        );
+        newCache[key] = recolorTileset(rawImg, currentPalette, paletteMode, [
+          "#ffffff",
+          "#aaaaaa",
+          "#555555",
+          "#000000",
+        ]);
       }
     });
     setRecoloredFlowers(newCache);
   }, [currentMapData, paletteMode, preloadedTilesets]);
- 
+
   // Modify this effect to handle scrolling when the map changes
   useEffect(() => {
     if (currentMapData) {
@@ -821,23 +988,23 @@ useEffect(() => {
 
       // Reset map canvas position
       if (mapCanvasRef.current) {
-        mapCanvasRef.current.style.transform = 'translate(0, 0)';
+        mapCanvasRef.current.style.transform = "translate(0, 0)";
       }
       if (waterOverlayCanvasRef.current) {
-        waterOverlayCanvasRef.current.style.transform = 'translate(0, 0)';
+        waterOverlayCanvasRef.current.style.transform = "translate(0, 0)";
       }
       if (eventOverlayCanvasRef.current) {
-        eventOverlayCanvasRef.current.style.transform = 'translate(0, 0)';
+        eventOverlayCanvasRef.current.style.transform = "translate(0, 0)";
       }
 
       // Find the map-display container and ensure it's visible
-      const mapDisplay = document.querySelector('.map-display');
+      const mapDisplay = document.querySelector(".map-display");
       if (mapDisplay) {
         mapDisplay.scrollTo(0, 0);
       }
     }
   }, [currentMapData]);
- 
+
   //
   // Render the component.
   //
@@ -863,7 +1030,7 @@ useEffect(() => {
           <select
             id="palette-mode-select"
             value={paletteMode}
-            onChange={(e) => setPaletteMode(e.target.value as 'cgb' | 'sgb')}
+            onChange={(e) => setPaletteMode(e.target.value as "cgb" | "sgb")}
           >
             <option value="cgb">Color Game Boy</option>
             <option value="sgb">Super Game Boy</option>
@@ -875,21 +1042,27 @@ useEffect(() => {
             <p>Map ID: {getMapIdFromHeader(selectedHeader, mapPointers)}</p>
             <p>Size Constant: {currentMapData.header.sizeConst}</p>
             <p>
-              Tileset Animation: {TILESETS[tilesetConstants[currentMapData.header.tileset] || 0].animation}
+              Tileset Animation:{" "}
+              {
+                TILESETS[tilesetConstants[currentMapData.header.tileset] || 0]
+                  .animation
+              }
             </p>
             <p>
               Tileset ID: {tilesetConstants[currentMapData.header.tileset] || 0}
             </p>
             <p>
-              Tileset: {currentMapData.header.tileset} → {currentMapData.header.actualBlockset}
+              Tileset: {currentMapData.header.tileset} →{" "}
+              {currentMapData.header.actualBlockset}
             </p>
             <p>Palette ID: {currentMapData.paletteId}</p>
             {currentMapData.header.width !== undefined &&
               currentMapData.header.height !== undefined && (
                 <p>
-                  Size: {currentMapData.header.width}x{currentMapData.header.height} tiles
+                  Size: {currentMapData.header.width}x
+                  {currentMapData.header.height} tiles
                 </p>
-            )}
+              )}
             <p>Required Files:</p>
             <ul className="required-files" style={{ textAlign: "left" }}>
               <li>maps/{currentMapData.header.name}.blk</li>
@@ -905,8 +1078,11 @@ useEffect(() => {
           </div>
         )}
       </div>
- 
-      <div className="main-view" style={{ display: "flex", flexDirection: "column" }}>
+
+      <div
+        className="main-view"
+        style={{ display: "flex", flexDirection: "column" }}
+      >
         <div className="tileset-display">
           <canvas
             ref={canvasRef}
@@ -914,8 +1090,11 @@ useEffect(() => {
             style={{ cursor: "crosshair", border: "1px solid #000" }}
           />
         </div>
- 
-        <div className="map-display" style={{ position: "relative", border: "1px solid #000" }}>
+
+        <div
+          className="map-display"
+          style={{ position: "relative", border: "1px solid #000" }}
+        >
           {/* The static map canvas */}
           <canvas ref={mapCanvasRef} />
           {/* The water overlay canvas (positioned absolutely on top) */}
@@ -926,7 +1105,7 @@ useEffect(() => {
               top: 0,
               left: 0,
               padding: "0px",
-              pointerEvents: "none"
+              pointerEvents: "none",
             }}
           />
           {/* The event overlay canvas (for clickable 'W' markers) */}
@@ -938,11 +1117,11 @@ useEffect(() => {
               top: 0,
               left: 0,
               padding: "0px",
-              zIndex: 2
+              zIndex: 2,
             }}
           />
         </div>
- 
+
         <div className="preview-palette-container">
           <div className="tile-preview">
             {selectedTile && (
@@ -959,14 +1138,17 @@ useEffect(() => {
               </>
             )}
           </div>
- 
+
           {currentMapData && (
-            <PaletteDisplay paletteId={currentMapData.paletteId} paletteMode={paletteMode} />
+            <PaletteDisplay
+              paletteId={currentMapData.paletteId}
+              paletteMode={paletteMode}
+            />
           )}
         </div>
       </div>
     </div>
   );
 }
- 
+
 export default App;
