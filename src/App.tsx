@@ -685,30 +685,54 @@ function App() {
   //
   // NEW: Effect to draw warp event markers on an overlay canvas.
   //
-  useEffect(() => {
-    if (!currentMapData || !currentMapData.mapObjects || !eventOverlayCanvasRef.current || !mapCanvasRef.current) {
-      return;
-    }
-    const canvas = eventOverlayCanvasRef.current;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    // Match the overlays' size to the map canvas.
-    canvas.width = mapCanvasRef.current.width;
-    canvas.height = mapCanvasRef.current.height;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.font = "bold 12px sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = "red";
-    currentMapData.mapObjects.warp_events
-      .filter(warp => !warp.isDebug) // Filter out debug warps
-      .forEach((warp) => {
-        const displayX = warp.x * BLOCK_SIZE * DISPLAY_SCALE;
-        const displayY = warp.y * BLOCK_SIZE * DISPLAY_SCALE;
-        // Center the "W" inside the 16x16 block.
-        ctx.fillText("W", displayX + (BLOCK_SIZE * DISPLAY_SCALE)/2, displayY + (BLOCK_SIZE * DISPLAY_SCALE)/2);
+// NEW: Effect to draw warp and object event markers on an overlay canvas.
+useEffect(() => {
+  if (
+    !currentMapData ||
+    !currentMapData.mapObjects ||
+    !eventOverlayCanvasRef.current ||
+    !mapCanvasRef.current
+  ) {
+    return;
+  }
+  const canvas = eventOverlayCanvasRef.current;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  // Ensure overlay canvas matches the map canvas dimensions.
+  canvas.width = mapCanvasRef.current.width;
+  canvas.height = mapCanvasRef.current.height;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  ctx.font = "bold 12px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  // Draw warp events as "W" in red.
+  ctx.fillStyle = "red";
+  currentMapData.mapObjects.warp_events
+    .filter((warp) => !warp.isDebug) // Filter out debug warps.
+    .forEach((warp) => {
+      const displayX = warp.x * BLOCK_SIZE * DISPLAY_SCALE;
+      const displayY = warp.y * BLOCK_SIZE * DISPLAY_SCALE;
+      ctx.fillText(
+        "W",
+        displayX + (BLOCK_SIZE * DISPLAY_SCALE) / 2,
+        displayY + (BLOCK_SIZE * DISPLAY_SCALE) / 2
+      );
     });
-  }, [currentMapData]);
+
+  // Draw object events as "P" in blue.
+  ctx.fillStyle = "blue";
+  currentMapData.mapObjects.object_events.forEach((objEvent) => {
+    const displayX = objEvent.x * BLOCK_SIZE * DISPLAY_SCALE;
+    const displayY = objEvent.y * BLOCK_SIZE * DISPLAY_SCALE;
+    ctx.fillText(
+      "P",
+      displayX + (BLOCK_SIZE * DISPLAY_SCALE) / 2,
+      displayY + (BLOCK_SIZE * DISPLAY_SCALE) / 2
+    );
+  });
+}, [currentMapData]);
  
   //
   // NEW: Handle clicks on the event overlay canvas.
