@@ -1,8 +1,8 @@
 /* App.tsx */
-import React, { useState, useRef, useEffect, useCallback, memo } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import "./App.css";
-import { loadAndAssembleMap } from "./blockset";
+import { loadAndAssembleMap, getBlocksetVisual } from "./blockset";
 import { usePreloadedTilesets } from "./hooks/usePreloadedTilesets";
 import { getPaletteId } from "./palettes/getPalletteId";
 import { palettes } from "./palettes/palettes";
@@ -16,6 +16,10 @@ import {
   WarpEvent,
 } from "./mapObjects/extractMapObjects";
 import { processSprite } from "./sprites/processSprite";
+import { PaletteDisplay } from "./palettes/PaletteDisplay";
+import { parseCollisionTiles } from "./collision/collisionTiles";
+import { BlockDisplay } from "./tile/blocksetDisplay";
+import { isSquareWalkable } from "./collision/walkability";
 
 //
 // Constants for rendering
@@ -66,52 +70,6 @@ interface TileCoordinates {
   y: number;
 }
 
-interface PaletteDisplayProps {
-  paletteId: number;
-  paletteMode: "cgb" | "sgb";
-}
-
-//
-// A simple PaletteDisplay component
-//
-const PaletteDisplay = memo(
-  ({ paletteId, paletteMode }: PaletteDisplayProps) => {
-    const palette = palettes[paletteId];
-    if (!palette) return null;
-
-    const convertColor = (color: { r: number; g: number; b: number }) => ({
-      r: Math.round((color.r / 31) * 255),
-      g: Math.round((color.g / 31) * 255),
-      b: Math.round((color.b / 31) * 255),
-    });
-
-    const currentPalette = paletteMode === "cgb" ? palette.cgb : palette.sgb;
-
-    return (
-      <div style={{ padding: "10px" }}>
-        <h4 style={{ margin: "5px 0" }}>{paletteMode.toUpperCase()} Palette</h4>
-        <div style={{ display: "flex" }}>
-          {currentPalette.map((color, index) => (
-            <div
-              key={`color-${index}`}
-              style={{
-                width: "30px",
-                height: "30px",
-                backgroundColor: `rgb(${convertColor(color).r}, ${
-                  convertColor(color).g
-                }, ${convertColor(color).b})`,
-                border: "1px solid #666",
-                margin: "2px",
-              }}
-              title={`R:${color.r} G:${color.g} B:${color.b}`}
-            />
-          ))}
-        </div>
-      </div>
-    );
-  }
-);
-
 //
 // Main App Component
 //
@@ -138,6 +96,11 @@ function App() {
   // Preload tileset images.
   const preloadedTilesets = usePreloadedTilesets(TILESET_FILES, paletteMode);
 
+  // Preload blockset visual.
+  const [blocksetVisual, setBlocksetVisual] = useState<number[][][] | null>(
+    null
+  );
+
   // Refs for canvases:
   // canvasRef shows the original (non-animated) tileset preview.
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -149,6 +112,8 @@ function App() {
   const eventOverlayCanvasRef = useRef<HTMLCanvasElement>(null);
   // previewCanvasRef shows a zoomed-in view of a selected tile.
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
+  //walkabilityCanvasRef shows the walkability of the map.// Refs for canvases:
+const collisionOverlayCanvasRef = useRef<HTMLCanvasElement>(null);
 
   // Cached startup data.
   const [cachedConstants, setCachedConstants] = useState<
@@ -174,6 +139,9 @@ function App() {
   const spriteCacheRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
   // A state to trigger re-draw when a sprite loads.
   const [spriteCacheVersion, setSpriteCacheVersion] = useState(0);
+
+  const collisionTiles = parseCollisionTiles();
+  console.log(collisionTiles);
 
   // Update lastValidMap whenever we successfully change maps
   useEffect(() => {
@@ -460,6 +428,10 @@ function App() {
           throw new Error("Error loading map, blockset, or object file");
         const blkData = new Uint8Array(await blkResponse.arrayBuffer());
         const blocksetData = new Uint8Array(await bstResponse.arrayBuffer());
+
+        const visual = getBlocksetVisual(blocksetData);
+        setBlocksetVisual(visual);
+
         const objectAsmContent = await objResponse.text();
         const map = loadAndAssembleMap(
           blkData,
@@ -804,94 +776,94 @@ function App() {
   //
   // NEW: Effect to draw warp and object event markers on an overlay canvas.
 
-
-useEffect(() => {
-  if (
-    !currentMapData ||
-    !currentMapData.mapObjects ||
-    !eventOverlayCanvasRef.current ||
-    !mapCanvasRef.current
-  ) {
-    return;
-  }
-  const canvas = eventOverlayCanvasRef.current;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-  ctx.imageSmoothingEnabled = false;
-  canvas.width = mapCanvasRef.current.width;
-  canvas.height = mapCanvasRef.current.height;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  // Draw warp events as before.
-  ctx.font = "bold 12px sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillStyle = "red";
-  currentMapData.mapObjects.warp_events
-    .filter((warp) => !warp.isDebug)
-    .forEach((warp) => {
-      const displayX = warp.x * BLOCK_SIZE * DISPLAY_SCALE;
-      const displayY = warp.y * BLOCK_SIZE * DISPLAY_SCALE;
-      ctx.fillText(
-        "W",
-        displayX + (BLOCK_SIZE * DISPLAY_SCALE) / 2,
-        displayY + (BLOCK_SIZE * DISPLAY_SCALE) / 2
-      );
-    });
-
-  // Draw object events as sprites.
-  currentMapData.mapObjects.object_events.forEach((objEvent) => {
-    // Determine sprite filename.
-    // e.g. "SPRITE_YOUNGSTER" becomes "youngster.png"
-    const spriteKey = objEvent.sprite;
-    const spriteFileName = spriteKey.replace("SPRITE_", "").toLowerCase() + ".png";
-
-    // Determine orientation from the facingDirection field.
-    // If facingDirection is "NONE" or missing, default to "down".
-    let orientation: 'down' | 'up' | 'left' | 'right' = 'down';
-    if (objEvent.facingDirection) {
-      const dir = objEvent.facingDirection.toLowerCase();
-      if (dir === 'up' || dir === 'left' || dir === 'right') {
-        orientation = dir as 'up' | 'left' | 'right';
-      }
+  useEffect(() => {
+    if (
+      !currentMapData ||
+      !currentMapData.mapObjects ||
+      !eventOverlayCanvasRef.current ||
+      !mapCanvasRef.current
+    ) {
+      return;
     }
+    const canvas = eventOverlayCanvasRef.current;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.imageSmoothingEnabled = false;
+    canvas.width = mapCanvasRef.current.width;
+    canvas.height = mapCanvasRef.current.height;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Use a cache key that includes orientation.
-    const cacheKey = spriteKey + "_" + orientation;
-
-    const cachedSprite = spriteCacheRef.current.get(cacheKey);
-    if (cachedSprite) {
-      const displayX = objEvent.x * BLOCK_SIZE * DISPLAY_SCALE;
-      const displayY = objEvent.y * BLOCK_SIZE * DISPLAY_SCALE;
-      ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(
-        cachedSprite,
-        0,
-        0,
-        16,
-        16,
-        displayX,
-        displayY,
-        16 * DISPLAY_SCALE,
-        16 * DISPLAY_SCALE
-      );
-    } else {
-      // Not cached: load, process, cache, then trigger a re-render.
-      const img = new Image();
-      img.src = `/pokemon-tileset/pkassets/gfx/sprites/${spriteFileName}`;
-      img.onload = () => {
-        const processedSprite = processSprite(
-          img,
-          palettes[currentMapData.paletteId],
-          paletteMode,
-          orientation
+    // Draw warp events as before.
+    ctx.font = "bold 12px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "red";
+    currentMapData.mapObjects.warp_events
+      .filter((warp) => !warp.isDebug)
+      .forEach((warp) => {
+        const displayX = warp.x * BLOCK_SIZE * DISPLAY_SCALE;
+        const displayY = warp.y * BLOCK_SIZE * DISPLAY_SCALE;
+        ctx.fillText(
+          "W",
+          displayX + (BLOCK_SIZE * DISPLAY_SCALE) / 2,
+          displayY + (BLOCK_SIZE * DISPLAY_SCALE) / 2
         );
-        spriteCacheRef.current.set(cacheKey, processedSprite);
-        setSpriteCacheVersion(v => v + 1);
-      };
-    }
-  });
-}, [currentMapData, paletteMode, spriteCacheVersion]);
+      });
+
+    // Draw object events as sprites.
+    currentMapData.mapObjects.object_events.forEach((objEvent) => {
+      // Determine sprite filename.
+      // e.g. "SPRITE_YOUNGSTER" becomes "youngster.png"
+      const spriteKey = objEvent.sprite;
+      const spriteFileName =
+        spriteKey.replace("SPRITE_", "").toLowerCase() + ".png";
+
+      // Determine orientation from the facingDirection field.
+      // If facingDirection is "NONE" or missing, default to "down".
+      let orientation: "down" | "up" | "left" | "right" = "down";
+      if (objEvent.facingDirection) {
+        const dir = objEvent.facingDirection.toLowerCase();
+        if (dir === "up" || dir === "left" || dir === "right") {
+          orientation = dir as "up" | "left" | "right";
+        }
+      }
+
+      // Use a cache key that includes orientation.
+      const cacheKey = spriteKey + "_" + orientation;
+
+      const cachedSprite = spriteCacheRef.current.get(cacheKey);
+      if (cachedSprite) {
+        const displayX = objEvent.x * BLOCK_SIZE * DISPLAY_SCALE;
+        const displayY = objEvent.y * BLOCK_SIZE * DISPLAY_SCALE;
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(
+          cachedSprite,
+          0,
+          0,
+          16,
+          16,
+          displayX,
+          displayY,
+          16 * DISPLAY_SCALE,
+          16 * DISPLAY_SCALE
+        );
+      } else {
+        // Not cached: load, process, cache, then trigger a re-render.
+        const img = new Image();
+        img.src = `/pokemon-tileset/pkassets/gfx/sprites/${spriteFileName}`;
+        img.onload = () => {
+          const processedSprite = processSprite(
+            img,
+            palettes[currentMapData.paletteId],
+            paletteMode,
+            orientation
+          );
+          spriteCacheRef.current.set(cacheKey, processedSprite);
+          setSpriteCacheVersion((v) => v + 1);
+        };
+      }
+    });
+  }, [currentMapData, paletteMode, spriteCacheVersion]);
 
   //
   // NEW: Handle clicks on the event overlay canvas.
@@ -1004,6 +976,42 @@ useEffect(() => {
       }
     }
   }, [currentMapData]);
+  useEffect(() => {
+    if (!currentMapData || !collisionOverlayCanvasRef.current || !mapCanvasRef.current) return;
+    const canvas = collisionOverlayCanvasRef.current;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+  
+    // Use the same dimensions as the main map canvas.
+    canvas.width = mapCanvasRef.current.width;
+    canvas.height = mapCanvasRef.current.height;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
+    // Our map is drawn as individual 8x8 tiles with DISPLAY_SCALE applied.
+    // Each walkable square is 16x16 pixels (i.e. 2x2 8x8 tiles).
+    const { tileMap, header } = currentMapData;
+    const totalTileRows = tileMap.length;
+    const totalTileCols = tileMap[0]?.length || 0;
+    const squaresX = Math.floor(totalTileCols / 2);
+    const squaresY = Math.floor(totalTileRows / 2);
+    const squarePixelSize = TILE_SIZE * DISPLAY_SCALE * 2; // (8 * DISPLAY_SCALE * 2)
+  
+    ctx.fillStyle = "rgba(255, 0, 0, 0.4)"; // transparent red
+  
+    // Iterate over each 16x16 square (in square coordinates)
+    for (let sy = 0; sy < squaresY; sy++) {
+      for (let sx = 0; sx < squaresX; sx++) {
+        // Use our helper function to check walkability.
+        const walkable = isSquareWalkable(sx, sy, tileMap, header.tileset, collisionTiles);
+        if (!walkable) {
+          // Compute the pixel coordinates.
+          const x = sx * squarePixelSize;
+          const y = sy * squarePixelSize;
+          ctx.fillRect(x, y, squarePixelSize, squarePixelSize);
+        }
+      }
+    }
+  }, [currentMapData, collisionTiles]);
 
   //
   // Render the component.
@@ -1063,12 +1071,20 @@ useEffect(() => {
                   {currentMapData.header.height} tiles
                 </p>
               )}
-            <p>Required Files:</p>
-            <ul className="required-files" style={{ textAlign: "left" }}>
-              <li>maps/{currentMapData.header.name}.blk</li>
-              <li>gfx/blocksets/{currentMapData.header.actualBlockset}.bst</li>
-              <li>gfx/tilesets/{currentMapData.header.actualBlockset}.png</li>
-            </ul>
+            {false && currentMapData && (
+              <>
+                <p>Required Files:</p>
+                <ul className="required-files" style={{ textAlign: "left" }}>
+                  <li>maps/{currentMapData?.header.name}.blk</li>
+                  <li>
+                    gfx/blocksets/{currentMapData?.header.actualBlockset}.bst
+                  </li>
+                  <li>
+                    gfx/tilesets/{currentMapData?.header.actualBlockset}.png
+                  </li>
+                </ul>
+              </>
+            )}
             {false && currentMapData?.mapObjects && (
               <>
                 <p>Map Objects:</p>
@@ -1090,6 +1106,32 @@ useEffect(() => {
             style={{ cursor: "crosshair", border: "1px solid #000" }}
           />
         </div>
+
+        {blocksetVisual &&
+          currentMapData &&
+          currentMapData.recoloredTileset && (
+            <div
+              className="blockset-display"
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                marginTop: "10px",
+                border: "1px solid #000",
+                padding: "5px",
+              }}
+            >
+              {blocksetVisual.map((block, idx) => (
+                <BlockDisplay
+                  key={idx}
+                  block={block}
+                  blockIndex={idx}
+                  tileset={currentMapData.recoloredTileset}
+                  tileSize={TILE_SIZE}
+                  scale={DISPLAY_SCALE}
+                />
+              ))}
+            </div>
+          )}
 
         <div
           className="map-display"
@@ -1120,6 +1162,17 @@ useEffect(() => {
               zIndex: 2,
             }}
           />
+          {/* The collision overlay canvas (draws transparent red on non-walkable squares) */}
+<canvas
+  ref={collisionOverlayCanvasRef}
+  style={{
+    position: "absolute",
+    top: 0,
+    left: 0,
+    pointerEvents: "none",
+    zIndex: 3, // ensure it sits on top of other overlays
+  }}
+/>
         </div>
 
         <div className="preview-palette-container">
