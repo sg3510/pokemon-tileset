@@ -1,3 +1,4 @@
+// collision/collisionTiles.ts
 // require public/pkassets/data/tilesets/collision_tile_ids.asm as text
 
 import collisionTilesData from "../../public/pkassets/data/tilesets/collision_tile_ids.asm?raw";

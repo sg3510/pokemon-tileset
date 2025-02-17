@@ -20,24 +20,16 @@ import { PaletteDisplay } from "./palettes/PaletteDisplay";
 import { parseCollisionTiles } from "./collision/collisionTiles";
 import { BlockDisplay } from "./tile/blocksetDisplay";
 import { isSquareWalkable } from "./collision/walkability";
-
-//
-// Constants for rendering
-//
-const TILE_SIZE = 8;
-const BLOCK_SIZE = 16;
-const ZOOM_FACTOR = 4;
-const DISPLAY_SCALE = 2; // So a tile on screen is 8*2 = 16 px
-
-// The water tile is always tile number 20 (0x14)
-const WATER_TILE_ID = 20;
-// The flower tile is always tile number 3 (0x03)
-const FLOWER_TILE_ID = 3;
-// The tileset is assumed to be 16 columns wide.
-const TILES_PER_ROW = 16;
-
-// How often (in ms) the water pixels shift.
-const WATER_ANIMATION_DELAY = 275;
+import {
+  TILE_SIZE,
+  BLOCK_SIZE,
+  ZOOM_FACTOR,
+  DISPLAY_SCALE,
+  WATER_TILE_ID,
+  FLOWER_TILE_ID,
+  TILES_PER_ROW,
+  WATER_ANIMATION_DELAY,
+} from "./constants";
 
 //
 // Interfaces
@@ -55,6 +47,15 @@ interface MapObjectData {
   warp_events: WarpEvent[];
   bg_events: BgEvent[];
   object_events: ObjectEvent[];
+}
+
+// At the top of App.tsx (or in a helper file)
+interface MovingState {
+  currentX: number;
+  currentY: number;
+  targetX: number;
+  targetY: number;
+  facing: "up" | "down" | "left" | "right";
 }
 
 interface CurrentMapData {
@@ -101,6 +102,10 @@ function App() {
     null
   );
 
+  const [movingStates, setMovingStates] = useState<Record<number, MovingState>>(
+    {}
+  );
+
   // Refs for canvases:
   // canvasRef shows the original (non-animated) tileset preview.
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -113,7 +118,7 @@ function App() {
   // previewCanvasRef shows a zoomed-in view of a selected tile.
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
   //walkabilityCanvasRef shows the walkability of the map.// Refs for canvases:
-const collisionOverlayCanvasRef = useRef<HTMLCanvasElement>(null);
+  const collisionOverlayCanvasRef = useRef<HTMLCanvasElement>(null);
 
   // Cached startup data.
   const [cachedConstants, setCachedConstants] = useState<
@@ -141,7 +146,7 @@ const collisionOverlayCanvasRef = useRef<HTMLCanvasElement>(null);
   const [spriteCacheVersion, setSpriteCacheVersion] = useState(0);
 
   const collisionTiles = parseCollisionTiles();
-  console.log(collisionTiles);
+  // console.log(collisionTiles);
 
   // Update lastValidMap whenever we successfully change maps
   useEffect(() => {
@@ -351,6 +356,7 @@ const collisionOverlayCanvasRef = useRef<HTMLCanvasElement>(null);
   //
   const headerRequestIdRef = useRef(0);
   useEffect(() => {
+    console.log("headerRequestIdRef", headerRequestIdRef.current);
     if (
       !Object.keys(cachedConstants).length ||
       !Object.keys(cachedMappings).length ||
@@ -490,11 +496,11 @@ const collisionOverlayCanvasRef = useRef<HTMLCanvasElement>(null);
     const index = pointers.findIndex((line) => line.includes(mapName));
     return index;
   }
-
   //
   // Draw the original tileset image (for preview).
   //
   useEffect(() => {
+    console.log("drawTileset");
     const newImage =
       currentMapData?.header.actualBlockset + ".png" || "overworld.png";
     const preloadedImage = preloadedTilesets[newImage];
@@ -505,7 +511,253 @@ const collisionOverlayCanvasRef = useRef<HTMLCanvasElement>(null);
       preloadedImage.onload = () => drawTileset(preloadedImage);
     }
   }, [currentMapData, preloadedTilesets, drawTileset]);
+  const drawMovingSprites = useCallback(
+    (currentMovingStates: Record<number, MovingState>) => {
+      if (
+        !currentMapData ||
+        !currentMapData.mapObjects ||
+        !eventOverlayCanvasRef.current ||
+        !mapCanvasRef.current
+      )
+        return;
+      const canvas = eventOverlayCanvasRef.current;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      // Ensure the overlay canvas matches the map canvas dimensions.
+      canvas.width = mapCanvasRef.current.width;
+      canvas.height = mapCanvasRef.current.height;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+      // Draw warp events (as before)
+      ctx.font = "bold 12px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "red";
+      ctx.imageSmoothingEnabled = false;
+      currentMapData.mapObjects.warp_events
+        .filter((warp) => !warp.isDebug)
+        .forEach((warp) => {
+          const displayX = warp.x * BLOCK_SIZE * DISPLAY_SCALE;
+          const displayY = warp.y * BLOCK_SIZE * DISPLAY_SCALE;
+          ctx.fillText(
+            "W",
+            displayX + (BLOCK_SIZE * DISPLAY_SCALE) / 2,
+            displayY + (BLOCK_SIZE * DISPLAY_SCALE) / 2
+          );
+        });
+
+      // Draw object events.
+      currentMapData.mapObjects.object_events.forEach((obj, idx) => {
+        let posX: number, posY: number;
+        let facing: "up" | "down" | "left" | "right";
+        if (obj.movement === "WALK") {
+          const state = currentMovingStates[idx];
+          if (state) {
+            posX = state.currentX;
+            posY = state.currentY;
+            facing = state.facing;
+          } else {
+            posX = obj.x * BLOCK_SIZE;
+            posY = obj.y * BLOCK_SIZE;
+            facing =
+              obj.facingDirection && obj.facingDirection !== "ANY_DIR"
+                ? (obj.facingDirection.toLowerCase() as
+                    | "up"
+                    | "down"
+                    | "left"
+                    | "right")
+                : "down";
+          }
+        } else {
+          posX = obj.x * BLOCK_SIZE;
+          posY = obj.y * BLOCK_SIZE;
+          facing =
+            obj.facingDirection && obj.facingDirection !== "ANY_DIR"
+              ? (obj.facingDirection.toLowerCase() as
+                  | "up"
+                  | "down"
+                  | "left"
+                  | "right")
+              : "down";
+        }
+        // Build the cache key so that our processed sprite reflects the correct orientation.
+        const spriteKey = obj.sprite + "_" + facing;
+        const cachedSprite = spriteCacheRef.current.get(spriteKey);
+        if (cachedSprite) {
+          ctx.drawImage(
+            cachedSprite,
+            0,
+            0,
+            16,
+            16,
+            posX * DISPLAY_SCALE,
+            posY * DISPLAY_SCALE,
+            16 * DISPLAY_SCALE,
+            16 * DISPLAY_SCALE
+          );
+        } else {
+          // If not cached, load and process the sprite.
+          const imgUp = new Image();
+          const spriteFileName =
+            obj.sprite.replace("SPRITE_", "").toLowerCase() + ".png";
+          imgUp.src = `/pokemon-tileset/pkassets/gfx/sprites/${spriteFileName}`;
+          imgUp.onload = () => {
+            const processed = processSprite(
+              imgUp,
+              palettes[currentMapData.paletteId],
+              paletteMode,
+              "up",
+              false
+            );
+            spriteCacheRef.current.set(obj.sprite + "_up", processed);
+            const imgDown = new Image();
+            imgDown.src = `/pokemon-tileset/pkassets/gfx/sprites/${spriteFileName}`;
+            imgDown.onload = () => {
+              const processed = processSprite(
+                imgDown,
+                palettes[currentMapData.paletteId],
+                paletteMode,
+                "down",
+                false
+              );
+              spriteCacheRef.current.set(obj.sprite + "_down", processed);
+              const imgLeft = new Image();
+              imgLeft.src = `/pokemon-tileset/pkassets/gfx/sprites/${spriteFileName}`;
+              imgLeft.onload = () => {
+                const processed = processSprite(
+                  imgLeft,
+                  palettes[currentMapData.paletteId],
+                  paletteMode,
+                  "left",
+                  false
+                );
+                spriteCacheRef.current.set(obj.sprite + "_left", processed);
+                const imgRight = new Image();
+                imgRight.src = `/pokemon-tileset/pkassets/gfx/sprites/${spriteFileName}`;
+                imgRight.onload = () => {
+                  const processed = processSprite(
+                    imgRight,
+                    palettes[currentMapData.paletteId],
+                    paletteMode,
+                    "right",
+                    false
+                  );
+                  spriteCacheRef.current.set(obj.sprite + "_right", processed);
+                  setSpriteCacheVersion((v) => v + 1);
+                };
+              };
+            };
+          };
+        }
+      });
+      if (!currentMapData || !currentMapData.mapObjects) return;
+      console.log("drawMovingSprites");
+      setMovingStates((prev) => {
+        const newStates = { ...prev };
+        currentMapData?.mapObjects?.object_events.forEach((obj, idx) => {
+          if (obj.movement === "WALK" && newStates[idx] === undefined) {
+            // Set the starting position (grid x * 16) and default facing "down"
+            newStates[idx] = {
+              currentX: obj.x * BLOCK_SIZE,
+              currentY: obj.y * BLOCK_SIZE,
+              targetX: obj.x * BLOCK_SIZE,
+              targetY: obj.y * BLOCK_SIZE,
+              facing: "down",
+            };
+          }
+        });
+        return newStates;
+      });
+    },
+    [currentMapData, paletteMode]
+  );
+
+  useEffect(() => {
+    if (
+      !currentMapData ||
+      !currentMapData.mapObjects ||
+      !eventOverlayCanvasRef.current ||
+      !mapCanvasRef.current
+    )
+      return;
+
+    const intervalId = setInterval(() => {
+      // Update moving states
+      console.log("updateMovingStates");
+      setMovingStates((prev) => {
+        const newStates = { ...prev };
+        Object.keys(newStates).forEach((keyStr) => {
+          const key = Number(keyStr);
+          const state = newStates[key];
+          // If we’ve reached our target, choose a new random direction:
+          if (state.currentX === state.targetX && state.currentY === state.targetY) {
+            // Define all possible movement directions (in pixel increments).
+            const directions = [
+              { dx: BLOCK_SIZE, dy: 0, facing: "right" },
+              { dx: -BLOCK_SIZE, dy: 0, facing: "left" },
+              { dx: 0, dy: BLOCK_SIZE, facing: "down" },
+              { dx: 0, dy: -BLOCK_SIZE, facing: "up" },
+            ];
+          
+            // Filter directions to only those that are valid:
+            // 1. The candidate cell (grid cell) is walkable.
+            // 2. No other moving object occupies that candidate cell.
+            const validDirections = directions.filter(choice => {
+              // Calculate the candidate pixel position.
+              const candidateX = state.currentX + choice.dx;
+              const candidateY = state.currentY + choice.dy;
+          
+              // Convert candidate position (in pixels) to grid coordinates.
+              const gridX = candidateX / BLOCK_SIZE;
+              const gridY = candidateY / BLOCK_SIZE;
+          
+              // Ensure we have valid map data.
+              if (!currentMapData) return false;
+          
+              // Check if the candidate grid cell is walkable.
+              if (!isSquareWalkable(gridX, gridY, currentMapData.tileMap, currentMapData.header.tileset, collisionTiles)) {
+                return false;
+              }
+          
+              // Check if any other moving object is already at this candidate position.
+              const occupied = Object.values(movingStates).some(otherState => {
+                // Skip checking against our own state.
+                if (otherState === state) return false;
+                return otherState.currentX === candidateX && otherState.currentY === candidateY;
+              });
+              if (occupied) return false;
+          
+              // If both checks pass, this direction is valid.
+              return true;
+            });
+          
+            if (validDirections.length > 0) {
+              // Randomly choose one of the valid directions.
+              const choice = validDirections[Math.floor(Math.random() * validDirections.length)];
+              state.targetX = state.currentX + choice.dx;
+              state.targetY = state.currentY + choice.dy;
+              state.facing = choice.facing as "down" | "up" | "left" | "right";
+            } else {
+              // No valid move found; remain at the current position.
+              state.targetX = state.currentX;
+              state.targetY = state.currentY;
+            }
+          } else {
+            // Move one pixel toward the target (only one axis will differ)
+            if (state.currentX < state.targetX) state.currentX++;
+            else if (state.currentX > state.targetX) state.currentX--;
+            if (state.currentY < state.targetY) state.currentY++;
+            else if (state.currentY > state.targetY) state.currentY--;
+          }
+        });
+        // Now draw the updated sprites.
+        drawMovingSprites(newStates);
+        return newStates;
+      });
+    }, 200);
+
+    return () => clearInterval(intervalId);
+  }, [currentMapData, drawMovingSprites]);
   //
   // Draw the zoomed preview of a selected tile.
   //
@@ -771,12 +1023,10 @@ const collisionOverlayCanvasRef = useRef<HTMLCanvasElement>(null);
     };
   }, [currentMapData, tilesetConstants, preloadedTilesets, recoloredFlowers]);
 
-  //
-  // NEW: Effect to draw warp event markers on an overlay canvas.
-  //
   // NEW: Effect to draw warp and object event markers on an overlay canvas.
 
   useEffect(() => {
+    console.log("drawEventOverlay");
     if (
       !currentMapData ||
       !currentMapData.mapObjects ||
@@ -785,6 +1035,7 @@ const collisionOverlayCanvasRef = useRef<HTMLCanvasElement>(null);
     ) {
       return;
     }
+    console.log("drawEventOverlay 2");
     const canvas = eventOverlayCanvasRef.current;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
@@ -852,13 +1103,13 @@ const collisionOverlayCanvasRef = useRef<HTMLCanvasElement>(null);
         const img = new Image();
         img.src = `/pokemon-tileset/pkassets/gfx/sprites/${spriteFileName}`;
         img.onload = () => {
-          const processedSprite = processSprite(
+          const processedSpriteUp = processSprite(
             img,
             palettes[currentMapData.paletteId],
             paletteMode,
-            orientation
+            "up"
           );
-          spriteCacheRef.current.set(cacheKey, processedSprite);
+          spriteCacheRef.current.set(cacheKey, processedSpriteUp);
           setSpriteCacheVersion((v) => v + 1);
         };
       }
@@ -950,10 +1201,7 @@ const collisionOverlayCanvasRef = useRef<HTMLCanvasElement>(null);
       }
     });
     setRecoloredFlowers(newCache);
-  }, [currentMapData, paletteMode, preloadedTilesets]);
 
-  // Modify this effect to handle scrolling when the map changes
-  useEffect(() => {
     if (currentMapData) {
       // Reset window scroll
       window.scrollTo(0, 0);
@@ -975,18 +1223,24 @@ const collisionOverlayCanvasRef = useRef<HTMLCanvasElement>(null);
         mapDisplay.scrollTo(0, 0);
       }
     }
-  }, [currentMapData]);
+  }, [currentMapData, paletteMode, preloadedTilesets]);
+
   useEffect(() => {
-    if (!currentMapData || !collisionOverlayCanvasRef.current || !mapCanvasRef.current) return;
+    if (
+      !currentMapData ||
+      !collisionOverlayCanvasRef.current ||
+      !mapCanvasRef.current
+    )
+      return;
     const canvas = collisionOverlayCanvasRef.current;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-  
+
     // Use the same dimensions as the main map canvas.
     canvas.width = mapCanvasRef.current.width;
     canvas.height = mapCanvasRef.current.height;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-  
+
     // Our map is drawn as individual 8x8 tiles with DISPLAY_SCALE applied.
     // Each walkable square is 16x16 pixels (i.e. 2x2 8x8 tiles).
     const { tileMap, header } = currentMapData;
@@ -995,14 +1249,20 @@ const collisionOverlayCanvasRef = useRef<HTMLCanvasElement>(null);
     const squaresX = Math.floor(totalTileCols / 2);
     const squaresY = Math.floor(totalTileRows / 2);
     const squarePixelSize = TILE_SIZE * DISPLAY_SCALE * 2; // (8 * DISPLAY_SCALE * 2)
-  
+
     ctx.fillStyle = "rgba(255, 0, 0, 0.4)"; // transparent red
-  
+
     // Iterate over each 16x16 square (in square coordinates)
     for (let sy = 0; sy < squaresY; sy++) {
       for (let sx = 0; sx < squaresX; sx++) {
         // Use our helper function to check walkability.
-        const walkable = isSquareWalkable(sx, sy, tileMap, header.tileset, collisionTiles);
+        const walkable = isSquareWalkable(
+          sx,
+          sy,
+          tileMap,
+          header.tileset,
+          collisionTiles
+        );
         if (!walkable) {
           // Compute the pixel coordinates.
           const x = sx * squarePixelSize;
@@ -1085,7 +1345,7 @@ const collisionOverlayCanvasRef = useRef<HTMLCanvasElement>(null);
                 </ul>
               </>
             )}
-            {false && currentMapData?.mapObjects && (
+            {true && currentMapData?.mapObjects && (
               <>
                 <p>Map Objects:</p>
                 <pre>{JSON.stringify(currentMapData?.mapObjects, null, 2)}</pre>
@@ -1107,9 +1367,10 @@ const collisionOverlayCanvasRef = useRef<HTMLCanvasElement>(null);
           />
         </div>
 
-        {blocksetVisual &&
+        {false &&
+          blocksetVisual &&
           currentMapData &&
-          currentMapData.recoloredTileset && (
+          currentMapData?.recoloredTileset && (
             <div
               className="blockset-display"
               style={{
@@ -1120,12 +1381,12 @@ const collisionOverlayCanvasRef = useRef<HTMLCanvasElement>(null);
                 padding: "5px",
               }}
             >
-              {blocksetVisual.map((block, idx) => (
+              {blocksetVisual?.map((block, idx) => (
                 <BlockDisplay
                   key={idx}
                   block={block}
                   blockIndex={idx}
-                  tileset={currentMapData.recoloredTileset}
+                  tileset={currentMapData!.recoloredTileset}
                   tileSize={TILE_SIZE}
                   scale={DISPLAY_SCALE}
                 />
@@ -1163,16 +1424,16 @@ const collisionOverlayCanvasRef = useRef<HTMLCanvasElement>(null);
             }}
           />
           {/* The collision overlay canvas (draws transparent red on non-walkable squares) */}
-<canvas
-  ref={collisionOverlayCanvasRef}
-  style={{
-    position: "absolute",
-    top: 0,
-    left: 0,
-    pointerEvents: "none",
-    zIndex: 3, // ensure it sits on top of other overlays
-  }}
-/>
+          <canvas
+            ref={collisionOverlayCanvasRef}
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              pointerEvents: "none",
+              zIndex: 3, // ensure it sits on top of other overlays
+            }}
+          />
         </div>
 
         <div className="preview-palette-container">
