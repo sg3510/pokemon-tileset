@@ -53,6 +53,8 @@ interface MapObjectData {
 interface MovingState {
   currentX: number;
   currentY: number;
+  initialX: number;
+  initialY: number;
   targetX: number;
   targetY: number;
   facing: "up" | "down" | "left" | "right";
@@ -470,6 +472,9 @@ function App() {
           paletteId,
           mapObjects,
         });
+
+        // 9. Reset moving states.
+        setMovingStates({});
       } catch (error: any) {
         if (error.name !== "AbortError") {
           console.error("Error in header/map loading chain:", error);
@@ -662,6 +667,8 @@ function App() {
               currentY: obj.y * BLOCK_SIZE,
               targetX: obj.x * BLOCK_SIZE,
               targetY: obj.y * BLOCK_SIZE,
+              initialX: obj.x * BLOCK_SIZE,
+              initialY: obj.y * BLOCK_SIZE,
               facing: "down",
             };
           }
@@ -690,7 +697,10 @@ function App() {
           const key = Number(keyStr);
           const state = newStates[key];
           // If we’ve reached our target, choose a new random direction:
-          if (state.currentX === state.targetX && state.currentY === state.targetY) {
+          if (
+            state.currentX === state.targetX &&
+            state.currentY === state.targetY
+          ) {
             // Define all possible movement directions (in pixel increments).
             const directions = [
               { dx: BLOCK_SIZE, dy: 0, facing: "right" },
@@ -698,42 +708,77 @@ function App() {
               { dx: 0, dy: BLOCK_SIZE, facing: "down" },
               { dx: 0, dy: -BLOCK_SIZE, facing: "up" },
             ];
-          
+
             // Filter directions to only those that are valid:
             // 1. The candidate cell (grid cell) is walkable.
             // 2. No other moving object occupies that candidate cell.
-            const validDirections = directions.filter(choice => {
+            // 3. Objects are "tethered" to their initial grid cell and cannot move further than 5 blocks away in any direction. i.e. max (-5, -5) to (5, 5)
+            // Inside your moving state update, when filtering valid directions:
+            const validDirections = directions.filter((choice) => {
               // Calculate the candidate pixel position.
               const candidateX = state.currentX + choice.dx;
               const candidateY = state.currentY + choice.dy;
-          
+
               // Convert candidate position (in pixels) to grid coordinates.
-              const gridX = candidateX / BLOCK_SIZE;
-              const gridY = candidateY / BLOCK_SIZE;
-          
+              const gridX = Math.round(candidateX / BLOCK_SIZE);
+              const gridY = Math.round(candidateY / BLOCK_SIZE);
+
               // Ensure we have valid map data.
               if (!currentMapData) return false;
-          
+
               // Check if the candidate grid cell is walkable.
-              if (!isSquareWalkable(gridX, gridY, currentMapData.tileMap, currentMapData.header.tileset, collisionTiles)) {
+              if (
+                !isSquareWalkable(
+                  gridX,
+                  gridY,
+                  currentMapData.tileMap,
+                  currentMapData.header.tileset,
+                  collisionTiles
+                )
+              ) {
                 return false;
               }
-          
+
               // Check if any other moving object is already at this candidate position.
-              const occupied = Object.values(movingStates).some(otherState => {
-                // Skip checking against our own state.
-                if (otherState === state) return false;
-                return otherState.currentX === candidateX && otherState.currentY === candidateY;
-              });
-              if (occupied) return false;
-          
-              // If both checks pass, this direction is valid.
+              const occupiedByMoving = Object.values(movingStates).some(
+                (otherState) => {
+                  if (otherState === state) return false;
+                  return (
+                    Math.round(otherState.currentX / BLOCK_SIZE) === gridX &&
+                    Math.round(otherState.currentY / BLOCK_SIZE) === gridY
+                  );
+                }
+              );
+              if (occupiedByMoving) return false;
+
+              // Check if any static (non-moving) object occupies this candidate grid cell.
+              // (For static objects, the object's x and y are given in block coordinates.)
+              const occupiedByStatic =
+                currentMapData.mapObjects?.object_events.some((obj) => {
+                  // Only consider objects that are not moving ("WALK")
+                  if (obj.movement === "WALK") return false;
+                  // Since obj.x and obj.y are in block coordinates, compare directly.
+                  return obj.x === gridX && obj.y === gridY;
+                });
+              if (occupiedByStatic) return false;
+
+              // Check tether range.
+              const tetherRange = 5;
+              const distanceX = Math.abs(state.initialX / BLOCK_SIZE - gridX);
+              const distanceY = Math.abs(state.initialY / BLOCK_SIZE - gridY);
+              if (distanceX > tetherRange || distanceY > tetherRange)
+                return false;
+
+              // If all checks pass, this direction is valid.
               return true;
             });
-          
+
             if (validDirections.length > 0) {
               // Randomly choose one of the valid directions.
-              const choice = validDirections[Math.floor(Math.random() * validDirections.length)];
+              const choice =
+                validDirections[
+                  Math.floor(Math.random() * validDirections.length)
+                ];
               state.targetX = state.currentX + choice.dx;
               state.targetY = state.currentY + choice.dy;
               state.facing = choice.facing as "down" | "up" | "left" | "right";
@@ -1107,7 +1152,7 @@ function App() {
             img,
             palettes[currentMapData.paletteId],
             paletteMode,
-            "up"
+            orientation
           );
           spriteCacheRef.current.set(cacheKey, processedSpriteUp);
           setSpriteCacheVersion((v) => v + 1);
