@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { processSprite } from "../sprites/processSprite";
 import { palettes } from "../palettes/palettes";
-
+import type { StaticDirection } from "../mapObjects/extractMapObjects";
 // This hook will preload (and process) all needed sprite variants.
 export function usePreloadMapSprites(
   currentMapData: any, // your proper type here
@@ -13,11 +13,11 @@ export function usePreloadMapSprites(
     if (!currentMapData?.mapObjects) return;
     const objectEvents = currentMapData.mapObjects.object_events;
     // We want to preload both still and walking for all four directions.
-    const orientations: ("down" | "up" | "left" | "right")[] = [
-      "down",
-      "up",
-      "left",
-      "right",
+    const orientations: StaticDirection[] = [
+      "DOWN",
+      "UP",
+      "LEFT",
+      "RIGHT",
     ];
     const walkingVariants = [false, true]; // false: still, true: walking
     const promises: Promise<void>[] = [];

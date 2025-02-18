@@ -1,5 +1,5 @@
 // src/sprites/processSprite.ts
-
+import { StaticDirection } from "../mapObjects/extractMapObjects";
 /**
  * processSprite
  * ---------------
@@ -26,7 +26,7 @@ export function processSprite(
   originalSprite: HTMLImageElement,
   palette: { cgb: { r: number; g: number; b: number }[]; sgb: { r: number; g: number; b: number }[] },
   paletteMode: 'cgb' | 'sgb' = 'cgb',
-  orientation: 'down' | 'up' | 'left' | 'right' = 'down',
+  orientation: StaticDirection = 'DOWN',
   isWalking: boolean = false
 ): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
@@ -41,16 +41,17 @@ export function processSprite(
   // For walking sprites: down=3, up=4, left=5.
   let baseFrameIndex = 0;
   switch (orientation) {
-    case 'up': baseFrameIndex = 1; break;
-    case 'left': baseFrameIndex = 2; break;
-    case 'down':
+    case 'UP': baseFrameIndex = 1; break;
+    case 'LEFT': baseFrameIndex = 2; break;
+    case 'DOWN':
+    case 'NONE':  // Added NONE case to match DOWN behavior
     default: baseFrameIndex = 0; break;
   }
   if (isWalking) {
     baseFrameIndex += 3;
   }
   let mirror = false;
-  if (orientation === 'right') {
+  if (orientation === 'RIGHT') {
     // Use left frame and mirror horizontally.
     baseFrameIndex = isWalking ? 5 : 2;
     mirror = true;
