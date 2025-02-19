@@ -32,7 +32,7 @@ import {
   TILES_PER_ROW,
   WATER_ANIMATION_DELAY,
 } from "./constants";
-import { getSpriteFrame } from "./sprites/spriteHelper";
+import { getSpriteFrame, getSpriteType, SpriteType } from "./sprites/spriteHelper";
 
 //
 // Interfaces
@@ -128,6 +128,8 @@ function App() {
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
   //walkabilityCanvasRef shows the walkability of the map.// Refs for canvases:
   const collisionOverlayCanvasRef = useRef<HTMLCanvasElement>(null);
+
+  const spriteMetaCacheRef = useRef<Map<string, SpriteType>>(new Map());
 
   // Cached startup data.
   const [cachedConstants, setCachedConstants] = useState<
@@ -515,52 +517,50 @@ function App() {
       spriteFileName: string,
       loadWalking: boolean = false // default: only load static frames
     ) => {
-      // Helper to load a sprite frame for a given direction and frame type.
-      const loadFrame = (
-        direction: "UP" | "DOWN" | "LEFT" | "RIGHT",
-        walking: boolean
-      ) =>
-        new Promise<void>((resolve) => {
-          const img = new Image();
-          img.src = `/pokemon-tileset/pkassets/gfx/sprites/${spriteFileName}`;
-          img.onload = () => {
-            const processed = processSprite(
+      const img = new Image();
+      img.src = `/pokemon-tileset/pkassets/gfx/sprites/${spriteFileName}`;
+      img.onload = () => {
+        // Get sprite type once per image.
+        const spriteType = getSpriteType(img);
+        spriteMetaCacheRef.current.set(baseSprite, spriteType);
+  
+        // Define the directions.
+        const directions: ("UP" | "DOWN" | "LEFT" | "RIGHT")[] = [
+          "UP",
+          "DOWN",
+          "LEFT",
+          "RIGHT",
+        ];
+  
+        // Process static frames.
+        directions.forEach((direction) => {
+          const processed = processSprite(
+            img,
+            palettes[currentMapData!.paletteId],
+            paletteMode,
+            direction,
+            false
+          );
+          const key = `${baseSprite}_${direction}`;
+          spriteCacheRef.current.set(key, processed);
+  
+          // If walking frames are needed, process them.
+          if (loadWalking) {
+            const processedWalk = processSprite(
               img,
               palettes[currentMapData!.paletteId],
               paletteMode,
               direction,
-              walking
+              true
             );
-            // Create a unique key for each frame type.
-            const key = walking ? `${baseSprite}_${direction}_walk` : `${baseSprite}_${direction}`;
-            spriteCacheRef.current.set(key, processed);
-            resolve();
-          };
+            const keyWalk = `${baseSprite}_${direction}_walk`;
+            spriteCacheRef.current.set(keyWalk, processedWalk);
+          }
         });
   
-      const directions: ("UP" | "DOWN" | "LEFT" | "RIGHT")[] = [
-        "UP",
-        "DOWN",
-        "LEFT",
-        "RIGHT",
-      ];
-  
-      // Prepare promises for the static (non-walking) frames.
-      const promises: Promise<void>[] = directions.map((direction) =>
-        loadFrame(direction, false)
-      );
-  
-      // If loadWalking is true, add the walking frames.
-      if (loadWalking) {
-        promises.push(
-          ...directions.map((direction) => loadFrame(direction, true))
-        );
-      }
-  
-      // Once all frames are loaded, trigger a redraw.
-      Promise.all(promises).then(() => {
+        // Trigger a redraw after all frames are cached.
         setSpriteCacheVersion((v) => v + 1);
-      });
+      };
     },
     [currentMapData, paletteMode]
   );
