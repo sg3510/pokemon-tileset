@@ -154,8 +154,6 @@ function App() {
 
   // Create a cache ref for processed sprite canvases.
   const spriteCacheRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
-  // A state to trigger re-draw when a sprite loads.
-  const [spriteCacheVersion, setSpriteCacheVersion] = useState(0);
 
   const collisionTiles = parseCollisionTiles();
   // console.log(collisionTiles);
@@ -548,7 +546,7 @@ function App() {
             });
           }
           setMovingStates(newMovingStates);
-          setSpriteCacheVersion(v => v + 1);
+          // setSpriteCacheVersion(v => v + 1);
         });
 
       } catch (error: any) {
@@ -577,62 +575,6 @@ function App() {
     const index = pointers.findIndex((line) => line.includes(mapName));
     return index;
   }
-
-  const loadAndCacheSprite = useCallback(
-    (
-      baseSprite: string,
-      spriteFileName: string,
-      paletteId: number,
-      loadWalking: boolean = false // default: only load static frames
-    ) => {
-      const img = new Image();
-      img.src = `/pokemon-tileset/pkassets/gfx/sprites/${spriteFileName}`;
-      img.onload = () => {
-        // Get sprite type once per image.
-        const spriteType = getSpriteType(img);
-        spriteMetaCacheRef.current.set(baseSprite, spriteType);
-        console.log('baseSprite', baseSprite, spriteType);
-  
-        // Define the directions.
-        const directions: ("UP" | "DOWN" | "LEFT" | "RIGHT")[] = [
-          "UP",
-          "DOWN",
-          "LEFT",
-          "RIGHT",
-        ];
-  
-        // Process static frames.
-        directions.forEach((direction) => {
-          const processed = processSprite(
-            img,
-            palettes[paletteId],
-            paletteMode,
-            direction,
-            false
-          );
-          const key = `${baseSprite}_${direction}`;
-          spriteCacheRef.current.set(key, processed);
-  
-          // If walking frames are needed, process them.
-          if (loadWalking) {
-            const processedWalk = processSprite(
-              img,
-              palettes[paletteId],
-              paletteMode,
-              direction,
-              true
-            );
-            const keyWalk = `${baseSprite}_${direction}_walk`;
-            spriteCacheRef.current.set(keyWalk, processedWalk);
-          }
-        });
-  
-        // Trigger a redraw after all frames are cached.
-        setSpriteCacheVersion((v) => v + 1);
-      };
-    },
-    [currentMapData, paletteMode]
-  );
 
   //
   // Draw the original tileset image (for preview).
@@ -1262,7 +1204,7 @@ function App() {
         );
       } 
     });
-  }, [currentMapData, paletteMode, spriteCacheVersion, loadAndCacheSprite]);
+  }, [currentMapData, paletteMode]);
   //
   // NEW: Handle clicks on the event overlay canvas.
   //
