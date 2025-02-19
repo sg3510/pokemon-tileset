@@ -364,6 +364,7 @@ function App() {
 
   //
   // When a new header is selected, load the header, map, blockset, and recolor the tileset.
+  // Main function for loading a new map.
   //
   const headerRequestIdRef = useRef(0);
   useEffect(() => {
@@ -482,7 +483,21 @@ function App() {
           mapObjects,
         });
 
-        // 9. Reset moving states.
+        // 9. Load sprites.
+        // find unique sprites
+        const spriteMovementTypes = new Map<string, boolean>();
+        mapObjects.object_events.forEach(obj => {
+          spriteMovementTypes.set(obj.sprite, 
+            spriteMovementTypes.get(obj.sprite) || obj.movement === "WALK"
+          );
+        });
+        // load them
+        for (const [spriteKey, needsWalking] of spriteMovementTypes) {
+          const spriteFileName = spriteKey.replace("SPRITE_", "").toLowerCase() + ".png";
+          loadAndCacheSprite(spriteKey, spriteFileName, paletteId, needsWalking);
+        }
+
+        // 10. Reset moving states.
         setMovingStates({});
       } catch (error: any) {
         if (error.name !== "AbortError") {
@@ -515,6 +530,7 @@ function App() {
     (
       baseSprite: string,
       spriteFileName: string,
+      paletteId: number,
       loadWalking: boolean = false // default: only load static frames
     ) => {
       const img = new Image();
@@ -536,7 +552,7 @@ function App() {
         directions.forEach((direction) => {
           const processed = processSprite(
             img,
-            palettes[currentMapData!.paletteId],
+            palettes[paletteId],
             paletteMode,
             direction,
             false
@@ -548,7 +564,7 @@ function App() {
           if (loadWalking) {
             const processedWalk = processSprite(
               img,
-              palettes[currentMapData!.paletteId],
+              palettes[paletteId],
               paletteMode,
               direction,
               true
@@ -666,16 +682,7 @@ function App() {
             16 * DISPLAY_SCALE,
             16 * DISPLAY_SCALE
           );
-        } else {
-          // Log that the sprite was not found.
-          console.warn(`[Sprite ${idx}] Missing sprite for key ${cacheKey}. Triggering load.`);
-          const spriteFileName = obj.sprite.replace("SPRITE_", "").toLowerCase() + ".png";
-          if (obj.movement === "WALK") {
-            loadAndCacheSprite(obj.sprite, spriteFileName, true);
-          } else {
-            loadAndCacheSprite(obj.sprite, spriteFileName, false);
-          }
-        }
+        } 
       });
   
       // Make sure moving states exist for WALK events.
@@ -736,13 +743,13 @@ function App() {
           // Retrieve the corresponding base object from the map's object events.
           const baseObj = currentMapData.mapObjects?.object_events[key];
   
-          // 1. If we’re in waiting mode, decrement the wait counter.
+          // 1. If we're in waiting mode, decrement the wait counter.
           if (state.waitTime > 0) {
             state.waitTime--;
             return; // do nothing else this tick
           }
   
-          // 2. If we’re still moving (haven't reached target), move one pixel.
+          // 2. If we're still moving (haven't reached target), move one pixel.
           if (state.currentX !== state.targetX || state.currentY !== state.targetY) {
             state.spriteWalkingCounter++;
             if (state.currentX < state.targetX) state.currentX++;
@@ -752,7 +759,7 @@ function App() {
             return;
           }
   
-          // 3. Now we’re stationary and not waiting.
+          // 3. Now we're stationary and not waiting.
           // If the sprite just finished moving, force a wait period.
           if (state.justMoved) {
             state.spriteWalkingCounter = 0;
@@ -845,7 +852,7 @@ function App() {
             );
             if (occupiedByStatic) return false;
   
-            // Check tether range: ensure sprite doesn’t move too far from its original cell.
+            // Check tether range: ensure sprite doesn't move too far from its original cell.
             const tetherRange = 5;
             const distanceX = Math.abs(state.initialX / BLOCK_SIZE - gridX);
             const distanceY = Math.abs(state.initialY / BLOCK_SIZE - gridY);
@@ -1221,12 +1228,7 @@ function App() {
           16 * DISPLAY_SCALE,
           16 * DISPLAY_SCALE
         );
-      } else {
-        const spriteFileName =
-          spriteKey.replace("SPRITE_", "").toLowerCase() + ".png";
-        console.log("Sprite not cached; loading:", spriteFileName, "for", spriteKey + "_" + orientation);
-        loadAndCacheSprite(objEvent.sprite, spriteFileName, objEvent.movement === "WALK");
-      }
+      } 
     });
   }, [currentMapData, paletteMode, spriteCacheVersion, loadAndCacheSprite]);
   //
