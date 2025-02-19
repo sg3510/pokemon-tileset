@@ -16,6 +16,7 @@ import {
   WalkingDirection,
   ObjectEvent,
   WarpEvent,
+  MovementMode,
 } from "./mapObjects/extractMapObjects";
 import { processSprite } from "./sprites/processSprite";
 import { PaletteDisplay } from "./palettes/PaletteDisplay";
@@ -61,10 +62,12 @@ interface MovingState {
   targetX: number;
   targetY: number;
   facing: StaticDirection;
-  movementType: WalkingDirection;
+  movementType: WalkingDirection | StaticDirection;
+  movementMode: MovementMode;
   waitTime: number;
   justMoved: boolean;
   spriteWalkingCounter: number;
+  spriteType: SpriteType;
 }
 
 interface CurrentMapData {
@@ -111,9 +114,7 @@ function App() {
     null
   );
   // ts-ignore
-  const [_movingStates, setMovingStates] = useState<Record<number, MovingState>>(
-    {}
-  );
+  const [movingStates, setMovingStates] = useState<Record<number, MovingState>>({});
 
   // Refs for canvases:
   // canvasRef shows the original (non-animated) tileset preview.
@@ -483,22 +484,73 @@ function App() {
           mapObjects,
         });
 
-        // 9. Load sprites.
-        // find unique sprites
+        // 9. Load sprites and create moving states after sprites are loaded
+        const spriteLoadPromises: Promise<void>[] = [];
         const spriteMovementTypes = new Map<string, boolean>();
+
         mapObjects.object_events.forEach(obj => {
           spriteMovementTypes.set(obj.sprite, 
             spriteMovementTypes.get(obj.sprite) || obj.movement === "WALK"
           );
         });
-        // load them
+
+        // Create a promise for each sprite load
         for (const [spriteKey, needsWalking] of spriteMovementTypes) {
           const spriteFileName = spriteKey.replace("SPRITE_", "").toLowerCase() + ".png";
-          loadAndCacheSprite(spriteKey, spriteFileName, paletteId, needsWalking);
+          const promise = new Promise<void>((resolve) => {
+            const img = new Image();
+            img.src = `/pokemon-tileset/pkassets/gfx/sprites/${spriteFileName}`;
+            img.onload = () => {
+              // Get sprite type once per image
+              const spriteType = getSpriteType(img);
+              spriteMetaCacheRef.current.set(spriteKey, spriteType);
+              
+              // Process all the necessary frames
+              const directions: ("UP" | "DOWN" | "LEFT" | "RIGHT")[] = ["UP", "DOWN", "LEFT", "RIGHT"];
+              directions.forEach((direction) => {
+                const processed = processSprite(img, palettes[paletteId], paletteMode, direction, false);
+                const key = `${spriteKey}_${direction}`;
+                spriteCacheRef.current.set(key, processed);
+
+                if (needsWalking) {
+                  const processedWalk = processSprite(img, palettes[paletteId], paletteMode, direction, true);
+                  const keyWalk = `${spriteKey}_${direction}_walk`;
+                  spriteCacheRef.current.set(keyWalk, processedWalk);
+                }
+              });
+              resolve();
+            };
+          });
+          spriteLoadPromises.push(promise);
         }
 
-        // 10. Reset moving states.
-        setMovingStates({});
+        // Wait for all sprites to load before creating moving states
+        Promise.all(spriteLoadPromises).then(() => {
+          const newMovingStates: Record<number, MovingState> = {};
+          if (mapObjects.object_events) {
+            mapObjects.object_events.forEach((obj, idx) => {
+              const spriteType = spriteMetaCacheRef.current.get(obj.sprite);              
+              newMovingStates[idx] = {
+                currentX: obj.x * BLOCK_SIZE,
+                currentY: obj.y * BLOCK_SIZE,
+                targetX: obj.x * BLOCK_SIZE,
+                targetY: obj.y * BLOCK_SIZE,
+                initialX: obj.x * BLOCK_SIZE,
+                initialY: obj.y * BLOCK_SIZE,
+                facing: obj.direction === "LEFT_RIGHT" ? "RIGHT" : "DOWN",
+                movementMode: obj.movement === "WALK" ? "WALK" : "STAY" as MovementMode,
+                movementType: obj.direction,
+                waitTime: 0,
+                justMoved: false,
+                spriteWalkingCounter: 0,
+                spriteType: spriteType as SpriteType
+              };
+            });
+          }
+          setMovingStates(newMovingStates);
+          setSpriteCacheVersion(v => v + 1);
+        });
+
       } catch (error: any) {
         if (error.name !== "AbortError") {
           console.error("Error in header/map loading chain:", error);
@@ -539,6 +591,7 @@ function App() {
         // Get sprite type once per image.
         const spriteType = getSpriteType(img);
         spriteMetaCacheRef.current.set(baseSprite, spriteType);
+        console.log('baseSprite', baseSprite, spriteType);
   
         // Define the directions.
         const directions: ("UP" | "DOWN" | "LEFT" | "RIGHT")[] = [
@@ -596,6 +649,8 @@ function App() {
       preloadedImage.onload = () => drawTileset(preloadedImage);
     }
   }, [currentMapData, preloadedTilesets, drawTileset]);
+
+
   const drawMovingSprites = useCallback(
     (currentMovingStates: Record<number, MovingState>) => {
       if (
@@ -649,6 +704,7 @@ function App() {
             spriteFrameType = getSpriteFrame(state.spriteWalkingCounter);
       
           } else {
+            console.log("no state for", obj.sprite);
             posX = obj.x * BLOCK_SIZE;
             posY = obj.y * BLOCK_SIZE;
             facing = obj.direction === "LEFT_RIGHT" ? "RIGHT" : "DOWN";
@@ -684,32 +740,8 @@ function App() {
           );
         } 
       });
-  
-      // Make sure moving states exist for WALK events.
-      if (!currentMapData || !currentMapData.mapObjects) return;
-      setMovingStates((prev) => {
-        const newStates = { ...prev };
-        currentMapData.mapObjects?.object_events.forEach((obj, idx) => {
-          if (obj.movement === "WALK" && newStates[idx] === undefined) {
-            newStates[idx] = {
-              currentX: obj.x * BLOCK_SIZE,
-              currentY: obj.y * BLOCK_SIZE,
-              targetX: obj.x * BLOCK_SIZE,
-              targetY: obj.y * BLOCK_SIZE,
-              initialX: obj.x * BLOCK_SIZE,
-              initialY: obj.y * BLOCK_SIZE,
-              facing: obj.direction === "LEFT_RIGHT" ? "RIGHT" : "DOWN",
-              movementType: obj.direction,
-              waitTime: 0,
-              justMoved: false,
-              spriteWalkingCounter: 0,
-            };
-          }
-        });
-        return newStates;
-      });
     },
-    [currentMapData, paletteMode]
+    [currentMapData, paletteMode, movingStates]
   );
 
   useEffect(() => {
