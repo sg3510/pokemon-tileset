@@ -34,7 +34,8 @@ import {
   WATER_ANIMATION_DELAY,
   SPRITE_ANIMATION_DELAY,
 } from "./constants";
-import { getSpriteFrame, getSpriteType, SpriteType } from "./sprites/spriteHelper";
+import { getSpriteFrame, SpriteType } from "./sprites/spriteHelper";
+import { usePreloadedSprites } from "./hooks/usePreloadedSprites";
 
 //
 // Interfaces
@@ -115,7 +116,9 @@ function App() {
     null
   );
   // ts-ignore
-  const [_movingStates, setMovingStates] = useState<Record<number, MovingState>>({});
+  const [_movingStates, setMovingStates] = useState<
+    Record<number, MovingState>
+  >({});
 
   // Refs for canvases:
   // canvasRef shows the original (non-animated) tileset preview.
@@ -152,6 +155,12 @@ function App() {
 
   // Add state for last map (defaulting to PalletTown.asm)
   const [lastValidMap, setLastValidMap] = useState<string>("PalletTown.asm");
+
+  const {
+    sprites: preloadedSprites,
+    spriteMeta,
+    loading: spritesLoading,
+  } = usePreloadedSprites();
 
   // Create a cache ref for processed sprite canvases.
   const spriteCacheRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
@@ -369,20 +378,21 @@ function App() {
   const headerRequestIdRef = useRef(0);
   useEffect(() => {
     console.log("headerRequestIdRef", headerRequestIdRef.current);
-    console.log("Pokemon Tileset Version 0.01e");
+    console.log("Pokemon Tileset Version 0.01f");
     if (
       !Object.keys(cachedConstants).length ||
       !Object.keys(cachedMappings).length ||
       mapPointers.length === 0 ||
       Object.keys(preloadedTilesets).length === 0 ||
-      Object.keys(tilesetConstants).length === 0
+      Object.keys(tilesetConstants).length === 0 ||
+      spritesLoading
     )
       return;
-  
+
     headerRequestIdRef.current++;
     const currentRequestId = headerRequestIdRef.current;
     const controller = new AbortController();
-  
+
     (async function loadMapChain() {
       try {
         // 1. Fetch and parse the header file.
@@ -393,10 +403,12 @@ function App() {
         if (!headerResponse.ok)
           throw new Error(`HTTP error! Status: ${headerResponse.status}`);
         const headerText = await headerResponse.text();
-        const headerMatch = headerText.match(/map_header\s+(\w+),\s+(\w+),\s+(\w+)/);
+        const headerMatch = headerText.match(
+          /map_header\s+(\w+),\s+(\w+),\s+(\w+)/
+        );
         if (!headerMatch) throw new Error("Failed to parse header file");
         if (currentRequestId !== headerRequestIdRef.current) return;
-  
+
         const headerName = headerMatch[1];
         const sizeConst = headerMatch[2];
         const tilesetName = headerMatch[3].toUpperCase();
@@ -414,40 +426,52 @@ function App() {
           width: dimensions.width,
           height: dimensions.height,
         };
-  
+
         // 2. Determine file names.
         const newSelectedMap = `${newHeader.name}.blk`;
         const newSelectedBlockset = `${newHeader.actualBlockset}.bst`;
         const newSelectedImage = `${newHeader.actualBlockset}.png`;
         const newSelectedObjectFile = `${newHeader.name}.asm`;
-  
+
         // 3. Ensure the new tileset image is preloaded.
         const originalTileset = preloadedTilesets[newSelectedImage];
         if (!originalTileset)
           throw new Error(`Tileset image ${newSelectedImage} not loaded`);
-  
+
         // 4. Fetch the map and blockset files concurrently.
         const [blkResponse, bstResponse, objResponse] = await Promise.all([
-          fetch(`/pokemon-tileset/pkassets/maps/${newSelectedMap}`, { signal: controller.signal }),
-          fetch(`/pokemon-tileset/pkassets/blocksets/${newSelectedBlockset}`, { signal: controller.signal }),
-          fetch(`/pokemon-tileset/pkassets/data/maps/objects/${newSelectedObjectFile}`, { signal: controller.signal }),
+          fetch(`/pokemon-tileset/pkassets/maps/${newSelectedMap}`, {
+            signal: controller.signal,
+          }),
+          fetch(`/pokemon-tileset/pkassets/blocksets/${newSelectedBlockset}`, {
+            signal: controller.signal,
+          }),
+          fetch(
+            `/pokemon-tileset/pkassets/data/maps/objects/${newSelectedObjectFile}`,
+            { signal: controller.signal }
+          ),
         ]);
         if (!blkResponse.ok || !bstResponse.ok || !objResponse.ok)
           throw new Error("Error loading map, blockset, or object file");
         const blkData = new Uint8Array(await blkResponse.arrayBuffer());
         const blocksetData = new Uint8Array(await bstResponse.arrayBuffer());
-  
+
         const visual = getBlocksetVisual(blocksetData);
         setBlocksetVisual(visual);
-  
+
         const objectAsmContent = await objResponse.text();
-        const map = loadAndAssembleMap(blkData, blocksetData, dimensions.width, dimensions.height);
-  
+        const map = loadAndAssembleMap(
+          blkData,
+          blocksetData,
+          dimensions.width,
+          dimensions.height
+        );
+
         // 5. Compute map ID and tileset ID then determine the palette ID.
         const mapId = getMapIdFromHeader(selectedHeader, mapPointers);
         const tilesetId = tilesetConstants[newHeader.tileset] || 0;
         const paletteId = getPaletteId(mapId, tilesetId);
-  
+
         // 6. Recolor the tileset image.
         const recoloredTileset = recolorTileset(
           originalTileset,
@@ -455,10 +479,10 @@ function App() {
           paletteMode,
           ["#ffffff", "#aaaaaa", "#555555", "#000000"]
         );
-  
+
         // 7. Extract map objects.
         const mapObjects = extractMapObjects(objectAsmContent);
-  
+
         // 8. Update the combined state.
         setCurrentMapData({
           header: newHeader,
@@ -467,103 +491,99 @@ function App() {
           paletteId,
           mapObjects,
         });
-  
+
         // 9. Load sprites and process their metadata.
+        // 9. Instead of fetching sprites here, use the preloaded sprites:
         const spriteLoadPromises: Promise<void>[] = [];
+        // Collect sprite movement types from object events.
         const spriteMovementTypes = new Map<string, boolean>();
-  
-        // Ensure key consistency (assuming obj.sprite is consistently formatted)
         mapObjects.object_events.forEach((obj) => {
-          const spriteKey = obj.sprite;
+          const spriteKey = obj.sprite; // e.g. "SPRITE_YOUNGSTER"
           spriteMovementTypes.set(
             spriteKey,
             spriteMovementTypes.get(spriteKey) || obj.movement === "WALK"
           );
         });
-  
-        // For each sprite, attach onload before setting src.
+
+        // For each sprite required in the map:
         for (const [spriteKey, needsWalking] of spriteMovementTypes) {
-          const spriteFileName = spriteKey.replace("SPRITE_", "").toLowerCase() + ".png";
-          const promise = new Promise<void>((resolve, reject) => {
-            const img = new Image();
-            // Attach onload before setting src to capture cached images as well.
-            img.onload = () => {
-              try {
-                const spriteTypeForSprite = getSpriteType(img);
-                spriteMetaCacheRef.current.set(spriteKey, spriteTypeForSprite);
-                const directions: ("UP" | "DOWN" | "LEFT" | "RIGHT")[] = [
-                  "UP",
-                  "DOWN",
-                  "LEFT",
-                  "RIGHT",
-                ];
-                directions.forEach((direction) => {
-                  const processed = processSprite(
-                    img,
-                    palettes[paletteId],
-                    paletteMode,
-                    direction,
-                    false
-                  );
-                  const key = `${spriteKey}_${direction}`;
-                  spriteCacheRef.current.set(key, processed);
-                  if (needsWalking) {
-                    const processedWalk = processSprite(
-                      img,
-                      palettes[paletteId],
-                      paletteMode,
-                      direction,
-                      true
-                    );
-                    const keyWalk = `${spriteKey}_${direction}_walk`;
-                    spriteCacheRef.current.set(keyWalk, processedWalk);
-                  }
-                });
-                resolve();
-              } catch (e) {
-                reject(e);
-              }
-            };
-            img.onerror = () =>
-              reject(new Error(`Failed to load sprite image: ${spriteFileName}`));
-            img.src = `/pokemon-tileset/pkassets/gfx/sprites/${spriteFileName}`;
+          const baseImg = preloadedSprites[spriteKey];
+          if (!baseImg) {
+            console.warn(
+              `Sprite image for ${spriteKey} not found in preloaded sprites.`
+            );
+            continue;
+          }
+          // Use the already computed sprite type if needed:
+          const spriteTypeForSprite = spriteMeta[spriteKey] || "none";
+          // Optionally update spriteMetaCacheRef here if you want a central ref:
+          spriteMetaCacheRef.current.set(spriteKey, spriteTypeForSprite);
+
+          // Process the sprite for each direction.
+          const directions: ("UP" | "DOWN" | "LEFT" | "RIGHT")[] = [
+            "UP",
+            "DOWN",
+            "LEFT",
+            "RIGHT",
+          ];
+          directions.forEach((direction) => {
+            const processed = processSprite(
+              baseImg,
+              palettes[paletteId],
+              paletteMode,
+              direction,
+              false
+            );
+            const key = `${spriteKey}_${direction}`;
+            spriteCacheRef.current.set(key, processed);
+            if (needsWalking) {
+              const processedWalk = processSprite(
+                baseImg,
+                palettes[paletteId],
+                paletteMode,
+                direction,
+                true
+              );
+              const keyWalk = `${spriteKey}_${direction}_walk`;
+              spriteCacheRef.current.set(keyWalk, processedWalk);
+            }
           });
-          spriteLoadPromises.push(promise);
         }
-  
-        // Wait for all sprite promises to complete.
+
+        // Wait for all (if any additional processing is asynchronous).
         await Promise.all(spriteLoadPromises);
-  
+
         // 10. Create moving states using the fully loaded sprite metadata.
         const newMovingStates: Record<number, MovingState> = {};
         if (mapObjects.object_events) {
           mapObjects.object_events.forEach((obj, idx) => {
             let spriteTypeForMovingState: SpriteType = "none";
             try {
-              spriteTypeForMovingState = spriteMetaCacheRef.current.get(obj.sprite) || "none";
+              spriteTypeForMovingState =
+                spriteMetaCacheRef.current.get(obj.sprite) || "none";
               // console.log('spriteType', spriteTypeForMovingState, 'for', obj.sprite);
               if (!spriteMetaCacheRef.current.get(obj.sprite)) {
-              // console.log(`Sprite type not found for key: ${obj.sprite}`);
-              spriteTypeForMovingState = "none" as SpriteType;
+                // console.log(`Sprite type not found for key: ${obj.sprite}`);
+                spriteTypeForMovingState = "none" as SpriteType;
+              }
+              newMovingStates[idx] = {
+                currentX: obj.x * BLOCK_SIZE,
+                currentY: obj.y * BLOCK_SIZE,
+                targetX: obj.x * BLOCK_SIZE,
+                targetY: obj.y * BLOCK_SIZE,
+                initialX: obj.x * BLOCK_SIZE,
+                initialY: obj.y * BLOCK_SIZE,
+                facing: obj.direction === "LEFT_RIGHT" ? "RIGHT" : "DOWN",
+                movementMode: obj.movement === "WALK" ? "WALK" : "STAY",
+                movementType: obj.direction,
+                waitTime: 0,
+                justMoved: false,
+                spriteWalkingCounter: 0,
+                spriteType: spriteTypeForMovingState,
+              };
+            } catch (error) {
+              console.error("Error in object event processing:", error);
             }
-            newMovingStates[idx] = {
-              currentX: obj.x * BLOCK_SIZE,
-              currentY: obj.y * BLOCK_SIZE,
-              targetX: obj.x * BLOCK_SIZE,
-              targetY: obj.y * BLOCK_SIZE,
-              initialX: obj.x * BLOCK_SIZE,
-              initialY: obj.y * BLOCK_SIZE,
-              facing: obj.direction === "LEFT_RIGHT" ? "RIGHT" : "DOWN",
-              movementMode: obj.movement === "WALK" ? "WALK" : "STAY",
-              movementType: obj.direction,
-              waitTime: 0,
-              justMoved: false,
-              spriteWalkingCounter: 0,
-              spriteType: spriteTypeForMovingState,
-            };
-          } catch (error) {
-            console.error("Error in object event processing:", error);
-          }
           });
         }
         setMovingStates(newMovingStates);
@@ -573,7 +593,7 @@ function App() {
         }
       }
     })();
-  
+
     return () => controller.abort();
   }, [
     selectedHeader,
@@ -583,6 +603,7 @@ function App() {
     preloadedTilesets,
     tilesetConstants,
     paletteMode,
+    spritesLoading,
   ]);
 
   //
@@ -609,7 +630,6 @@ function App() {
     }
   }, [currentMapData, preloadedTilesets, drawTileset]);
 
-
   const drawMovingSprites = useCallback(
     (currentMovingStates: Record<number, MovingState>) => {
       if (
@@ -619,16 +639,16 @@ function App() {
         !mapCanvasRef.current
       )
         return;
-  
+
       const canvas = eventOverlayCanvasRef.current;
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
-  
+
       // Make sure the overlay canvas matches the map canvas.
       canvas.width = mapCanvasRef.current.width;
       canvas.height = mapCanvasRef.current.height;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-  
+
       // Draw warp events (unchanged)
       ctx.font = "bold 12px sans-serif";
       ctx.textAlign = "center";
@@ -646,30 +666,32 @@ function App() {
             displayY + (BLOCK_SIZE * DISPLAY_SCALE) / 2
           );
         });
-  
+
       // Draw object events (using walking/static alternation)
       currentMapData.mapObjects.object_events.forEach((obj, idx) => {
         let posX: number, posY: number;
         let facing: StaticDirection;
         let spriteFrameType: "static" | "walking" = "static";
-        
-      
+
         if (obj.movement === "WALK") {
           const state = currentMovingStates[idx];
           if (state) {
             posX = state.currentX;
             posY = state.currentY;
-            facing = state.facing;          
+            facing = state.facing;
             spriteFrameType = getSpriteFrame(state.spriteWalkingCounter);
-      
           } else {
             posX = obj.x * BLOCK_SIZE;
             posY = obj.y * BLOCK_SIZE;
             facing = obj.direction === "LEFT_RIGHT" ? "RIGHT" : "DOWN";
           }
-        } 
+        }
         // check if obj.
-        else if (obj.movement === "STAY" && obj.direction === "NONE" && (currentMovingStates[idx].spriteType || "none") !== "none") {
+        else if (
+          obj.movement === "STAY" &&
+          obj.direction === "NONE" &&
+          (currentMovingStates[idx].spriteType || "none") !== "none"
+        ) {
           // console.log('staying still', obj);
           const state = currentMovingStates[idx];
           // console.log('state', state);
@@ -678,24 +700,28 @@ function App() {
           posX = state.currentX;
           posY = state.currentY;
           facing = state.facing;
-        }
-        else {
+        } else {
           posX = obj.x * BLOCK_SIZE;
           posY = obj.y * BLOCK_SIZE;
-          facing = obj.direction === "NONE" ? "DOWN" : (obj.direction as StaticDirection);
+          facing =
+            obj.direction === "NONE"
+              ? "DOWN"
+              : (obj.direction as StaticDirection);
         }
-      
+
         // Build the cache key.
         let cacheKey = `${obj.sprite}_${facing}`;
         if (obj.movement === "WALK" && spriteFrameType === "walking") {
           cacheKey += "_walk";
         }
-      
+
         // Retrieve the sprite from the cache...
-        const cachedSpriteKey = Array.from(spriteCacheRef.current.keys()).find(key =>
-          key.toLowerCase() === cacheKey.toLowerCase()
+        const cachedSpriteKey = Array.from(spriteCacheRef.current.keys()).find(
+          (key) => key.toLowerCase() === cacheKey.toLowerCase()
         );
-        const cachedSprite = cachedSpriteKey ? spriteCacheRef.current.get(cachedSpriteKey) : undefined;
+        const cachedSprite = cachedSpriteKey
+          ? spriteCacheRef.current.get(cachedSpriteKey)
+          : undefined;
         if (cachedSprite) {
           ctx.drawImage(
             cachedSprite,
@@ -708,7 +734,7 @@ function App() {
             16 * DISPLAY_SCALE,
             16 * DISPLAY_SCALE
           );
-        } 
+        }
       });
     },
     [currentMapData, paletteMode]
@@ -722,37 +748,40 @@ function App() {
       !mapCanvasRef.current
     )
       return;
-  
+
     // Returns a wait time of 16, 32, or 48 frames.
     const getRandomWaitTime = () => {
       const choices = [BLOCK_SIZE, BLOCK_SIZE * 2, BLOCK_SIZE * 3];
       return choices[Math.floor(Math.random() * choices.length)];
     };
-  
+
     // A forced wait period always lasts one block (16 frames).
     const forcedWaitTime = BLOCK_SIZE;
-  
+
     const intervalId = setInterval(() => {
       setMovingStates((prev) => {
         const newStates = { ...prev };
-  
+
         // Loop through each moving state
         Object.keys(newStates).forEach((keyStr) => {
           const key = Number(keyStr);
           const state = newStates[key];
-  
+
           // Get the corresponding base object from the map's object events.
           const baseObj = currentMapData.mapObjects?.object_events[key];
           if (!baseObj) return;
-  
+
           // 1. If we're in waiting mode, decrement the wait counter.
           if (state.waitTime > 0) {
             state.waitTime--;
             return;
           }
-  
+
           // 2. If we're still moving (haven't reached the target), move one pixel.
-          if (state.currentX !== state.targetX || state.currentY !== state.targetY) {
+          if (
+            state.currentX !== state.targetX ||
+            state.currentY !== state.targetY
+          ) {
             state.spriteWalkingCounter++;
             if (state.currentX < state.targetX) state.currentX++;
             else if (state.currentX > state.targetX) state.currentX--;
@@ -760,7 +789,7 @@ function App() {
             else if (state.currentY > state.targetY) state.currentY--;
             return;
           }
-  
+
           // 3. If the sprite just finished moving, force a wait period.
           if (state.justMoved) {
             state.spriteWalkingCounter = 0;
@@ -768,14 +797,19 @@ function App() {
             state.justMoved = false;
             return;
           }
-  
+
           // 4. Now choose a new action based on movement type.
           if (baseObj.movement === "WALK") {
             // For WALK objects, use the existing options.
             type Option =
-              | { type: "move"; dx: number; dy: number; facing: StaticDirection }
+              | {
+                  type: "move";
+                  dx: number;
+                  dy: number;
+                  facing: StaticDirection;
+                }
               | { type: "wait"; waitTime: number };
-  
+
             const allOptions: Option[] = [
               { type: "move", dx: BLOCK_SIZE, dy: 0, facing: "RIGHT" },
               { type: "move", dx: -BLOCK_SIZE, dy: 0, facing: "LEFT" },
@@ -783,27 +817,29 @@ function App() {
               { type: "move", dx: 0, dy: -BLOCK_SIZE, facing: "UP" },
               { type: "wait", waitTime: getRandomWaitTime() },
             ];
-  
+
             // First filter options by movementType.
             const optionsByType = allOptions.filter((option) => {
               if (option.type === "wait") return true;
-              if (state.movementType === "UP_DOWN" && option.dx !== 0) return false;
-              if (state.movementType === "LEFT_RIGHT" && option.dy !== 0) return false;
+              if (state.movementType === "UP_DOWN" && option.dx !== 0)
+                return false;
+              if (state.movementType === "LEFT_RIGHT" && option.dy !== 0)
+                return false;
               return true;
             });
-  
+
             // Then filter options based on grid conditions.
             const validOptions = optionsByType.filter((option) => {
               if (option.type === "wait") return true;
-  
+
               // Calculate candidate grid position.
               const candidateX = state.currentX + option.dx;
               const candidateY = state.currentY + option.dy;
               const gridX = Math.round(candidateX / BLOCK_SIZE);
               const gridY = Math.round(candidateY / BLOCK_SIZE);
-  
+
               if (!currentMapData) return false;
-  
+
               // Special handling for Seel sprites (e.g. water conditions).
               if (baseObj?.sprite === "SPRITE_SEEL") {
                 const tileX = gridX * 2;
@@ -830,44 +866,47 @@ function App() {
                   return false;
                 }
               }
-  
+
               // Check if another moving sprite occupies the cell.
-              const occupiedByMoving = Object.values(newStates).some((otherState) => {
-                if (otherState === state) return false;
-                return (
-                  Math.round(otherState.currentX / BLOCK_SIZE) === gridX &&
-                  Math.round(otherState.currentY / BLOCK_SIZE) === gridY
-                );
-              });
-              if (occupiedByMoving) return false;
-  
-              // Check if any static (non‑moving) object occupies the cell.
-              const occupiedByStatic = currentMapData.mapObjects?.object_events.some(
-                (obj) => {
-                  if (obj.movement === "WALK") return false;
-                  return obj.x === gridX && obj.y === gridY;
+              const occupiedByMoving = Object.values(newStates).some(
+                (otherState) => {
+                  if (otherState === state) return false;
+                  return (
+                    Math.round(otherState.currentX / BLOCK_SIZE) === gridX &&
+                    Math.round(otherState.currentY / BLOCK_SIZE) === gridY
+                  );
                 }
               );
+              if (occupiedByMoving) return false;
+
+              // Check if any static (non‑moving) object occupies the cell.
+              const occupiedByStatic =
+                currentMapData.mapObjects?.object_events.some((obj) => {
+                  if (obj.movement === "WALK") return false;
+                  return obj.x === gridX && obj.y === gridY;
+                });
               if (occupiedByStatic) return false;
-  
+
               // Ensure sprite doesn't move too far from its original cell.
               const tetherRange = 5;
               const distanceX = Math.abs(state.initialX / BLOCK_SIZE - gridX);
               const distanceY = Math.abs(state.initialY / BLOCK_SIZE - gridY);
-              if (distanceX > tetherRange || distanceY > tetherRange) return false;
-  
+              if (distanceX > tetherRange || distanceY > tetherRange)
+                return false;
+
               return true;
             });
-  
+
             // If no valid move options, stay in place.
             if (validOptions.length === 0) {
               state.targetX = state.currentX;
               state.targetY = state.currentY;
               return;
             }
-  
+
             // Randomly choose one of the valid options.
-            const choice = validOptions[Math.floor(Math.random() * validOptions.length)];
+            const choice =
+              validOptions[Math.floor(Math.random() * validOptions.length)];
             if (choice.type === "wait") {
               state.waitTime = choice.waitTime;
             } else {
@@ -882,8 +921,10 @@ function App() {
             (state.spriteType || "none") !== "none"
           ) {
             // For STAY objects, only update the facing direction (or wait).
-            type Option = { type: "face"; facing: StaticDirection } | { type: "wait"; waitTime: number };
-  
+            type Option =
+              | { type: "face"; facing: StaticDirection }
+              | { type: "wait"; waitTime: number };
+
             const faceOptions: Option[] = [
               { type: "face", facing: "LEFT" },
               { type: "face", facing: "RIGHT" },
@@ -891,8 +932,9 @@ function App() {
               { type: "face", facing: "DOWN" },
               { type: "wait", waitTime: getRandomWaitTime() },
             ];
-  
-            const choice = faceOptions[Math.floor(Math.random() * faceOptions.length)];
+
+            const choice =
+              faceOptions[Math.floor(Math.random() * faceOptions.length)];
             if (choice.type === "face") {
               state.facing = choice.facing;
               state.justMoved = true; // enforce a forced wait after facing change
@@ -904,13 +946,13 @@ function App() {
             state.waitTime = getRandomWaitTime();
           }
         });
-  
+
         // Draw the updated states.
         drawMovingSprites(newStates);
         return newStates;
       });
     }, SPRITE_ANIMATION_DELAY);
-  
+
     return () => clearInterval(intervalId);
   }, [currentMapData, drawMovingSprites]);
   //
@@ -1196,7 +1238,7 @@ function App() {
     canvas.width = mapCanvasRef.current.width;
     canvas.height = mapCanvasRef.current.height;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-  
+
     // Draw warp events as before.
     ctx.font = "bold 12px sans-serif";
     ctx.textAlign = "center";
@@ -1213,13 +1255,13 @@ function App() {
           displayY + (BLOCK_SIZE * DISPLAY_SCALE) / 2
         );
       });
-  
+
     // Draw object events as sprites.
     currentMapData.mapObjects.object_events.forEach((objEvent) => {
       // Determine sprite filename.
       // e.g. "SPRITE_YOUNGSTER" becomes "youngster.png"
       const spriteKey = objEvent.sprite;
-  
+
       // Determine orientation based on movement type.
       let orientation: StaticDirection = "DOWN";
       if (objEvent.movement === "WALK") {
@@ -1229,9 +1271,12 @@ function App() {
       } else {
         // For STAY events, use the provided static direction.
         // If the static direction is "NONE", default to DOWN.
-        orientation = objEvent.direction === "NONE" ? "DOWN" : (objEvent.direction as StaticDirection);
+        orientation =
+          objEvent.direction === "NONE"
+            ? "DOWN"
+            : (objEvent.direction as StaticDirection);
       }
-  
+
       // Use a cache key that includes orientation.
       const cacheKey = spriteKey + "_" + orientation;
       const cachedSprite = spriteCacheRef.current.get(cacheKey);
@@ -1250,7 +1295,7 @@ function App() {
           16 * DISPLAY_SCALE,
           16 * DISPLAY_SCALE
         );
-      } 
+      }
     });
   }, [currentMapData, paletteMode]);
   //
