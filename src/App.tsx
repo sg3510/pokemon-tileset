@@ -758,202 +758,222 @@ function App() {
     // A forced wait period always lasts one block (16 frames).
     const forcedWaitTime = BLOCK_SIZE;
 
-    const intervalId = setInterval(() => {
-      setMovingStates((prev) => {
-        const newStates = { ...prev };
+    let lastFrameTime = 0;
+    let animationFrameId: number;
 
-        // Loop through each moving state
-        Object.keys(newStates).forEach((keyStr) => {
-          const key = Number(keyStr);
-          const state = newStates[key];
+    function animate(timestamp: number) {
+      if (!currentMapData) return;
+      // Control animation speed using timestamp
+      if (timestamp - lastFrameTime >= SPRITE_ANIMATION_DELAY) {
+        setMovingStates((prev) => {
+          const newStates = { ...prev };
 
-          // Get the corresponding base object from the map's object events.
-          const baseObj = currentMapData.mapObjects?.object_events[key];
-          if (!baseObj) return;
+          // Loop through each moving state
+          Object.keys(newStates).forEach((keyStr) => {
+            const key = Number(keyStr);
+            const state = newStates[key];
 
-          // 1. If we're in waiting mode, decrement the wait counter.
-          if (state.waitTime > 0) {
-            state.waitTime--;
-            return;
-          }
+            // Get the corresponding base object from the map's object events.
+            const baseObj = currentMapData.mapObjects?.object_events[key];
+            if (!baseObj) return;
 
-          // 2. If we're still moving (haven't reached the target), move one pixel.
-          if (
-            state.currentX !== state.targetX ||
-            state.currentY !== state.targetY
-          ) {
-            state.spriteWalkingCounter++;
-            if (state.currentX < state.targetX) state.currentX++;
-            else if (state.currentX > state.targetX) state.currentX--;
-            if (state.currentY < state.targetY) state.currentY++;
-            else if (state.currentY > state.targetY) state.currentY--;
-            return;
-          }
-
-          // 3. If the sprite just finished moving, force a wait period.
-          if (state.justMoved) {
-            state.spriteWalkingCounter = 0;
-            state.waitTime = forcedWaitTime;
-            state.justMoved = false;
-            return;
-          }
-
-          // 4. Now choose a new action based on movement type.
-          if (baseObj.movement === "WALK") {
-            // For WALK objects, use the existing options.
-            type Option =
-              | {
-                  type: "move";
-                  dx: number;
-                  dy: number;
-                  facing: StaticDirection;
-                }
-              | { type: "wait"; waitTime: number };
-
-            const allOptions: Option[] = [
-              { type: "move", dx: BLOCK_SIZE, dy: 0, facing: "RIGHT" },
-              { type: "move", dx: -BLOCK_SIZE, dy: 0, facing: "LEFT" },
-              { type: "move", dx: 0, dy: BLOCK_SIZE, facing: "DOWN" },
-              { type: "move", dx: 0, dy: -BLOCK_SIZE, facing: "UP" },
-              { type: "wait", waitTime: getRandomWaitTime() },
-            ];
-
-            // First filter options by movementType.
-            const optionsByType = allOptions.filter((option) => {
-              if (option.type === "wait") return true;
-              if (state.movementType === "UP_DOWN" && option.dx !== 0)
-                return false;
-              if (state.movementType === "LEFT_RIGHT" && option.dy !== 0)
-                return false;
-              return true;
-            });
-
-            // Then filter options based on grid conditions.
-            const validOptions = optionsByType.filter((option) => {
-              if (option.type === "wait") return true;
-
-              // Calculate candidate grid position.
-              const candidateX = state.currentX + option.dx;
-              const candidateY = state.currentY + option.dy;
-              const gridX = Math.round(candidateX / BLOCK_SIZE);
-              const gridY = Math.round(candidateY / BLOCK_SIZE);
-
-              if (!currentMapData) return false;
-
-              // Special handling for Seel sprites (e.g. water conditions).
-              if (baseObj?.sprite === "SPRITE_SEEL") {
-                const tileX = gridX * 2;
-                const tileY = gridY * 2 + 1;
-                if (
-                  tileY < 0 ||
-                  tileY >= currentMapData.tileMap.length ||
-                  tileX < 0 ||
-                  tileX >= currentMapData.tileMap[0].length
-                ) {
-                  return false;
-                }
-                return currentMapData.tileMap[tileY][tileX] === WATER_TILE_ID;
-              } else {
-                if (
-                  !isSquareWalkable(
-                    gridX,
-                    gridY,
-                    currentMapData.tileMap,
-                    currentMapData.header.tileset,
-                    collisionTiles
-                  )
-                ) {
-                  return false;
-                }
-              }
-
-              // Check if another moving sprite occupies the cell.
-              const occupiedByMoving = Object.values(newStates).some(
-                (otherState) => {
-                  if (otherState === state) return false;
-                  return (
-                    Math.round(otherState.currentX / BLOCK_SIZE) === gridX &&
-                    Math.round(otherState.currentY / BLOCK_SIZE) === gridY
-                  );
-                }
-              );
-              if (occupiedByMoving) return false;
-
-              // Check if any static (non‑moving) object occupies the cell.
-              const occupiedByStatic =
-                currentMapData.mapObjects?.object_events.some((obj) => {
-                  if (obj.movement === "WALK") return false;
-                  return obj.x === gridX && obj.y === gridY;
-                });
-              if (occupiedByStatic) return false;
-
-              // Ensure sprite doesn't move too far from its original cell.
-              const tetherRange = 5;
-              const distanceX = Math.abs(state.initialX / BLOCK_SIZE - gridX);
-              const distanceY = Math.abs(state.initialY / BLOCK_SIZE - gridY);
-              if (distanceX > tetherRange || distanceY > tetherRange)
-                return false;
-
-              return true;
-            });
-
-            // If no valid move options, stay in place.
-            if (validOptions.length === 0) {
-              state.targetX = state.currentX;
-              state.targetY = state.currentY;
+            // 1. If we're in waiting mode, decrement the wait counter.
+            if (state.waitTime > 0) {
+              state.waitTime--;
               return;
             }
 
-            // Randomly choose one of the valid options.
-            const choice =
-              validOptions[Math.floor(Math.random() * validOptions.length)];
-            if (choice.type === "wait") {
-              state.waitTime = choice.waitTime;
-            } else {
-              state.targetX = state.currentX + choice.dx;
-              state.targetY = state.currentY + choice.dy;
-              state.facing = choice.facing;
-              state.justMoved = true;
+            // 2. If we're still moving (haven't reached the target), move one pixel.
+            if (
+              state.currentX !== state.targetX ||
+              state.currentY !== state.targetY
+            ) {
+              state.spriteWalkingCounter++;
+              if (state.currentX < state.targetX) state.currentX++;
+              else if (state.currentX > state.targetX) state.currentX--;
+              if (state.currentY < state.targetY) state.currentY++;
+              else if (state.currentY > state.targetY) state.currentY--;
+              return;
             }
-          } else if (
-            baseObj.movement === "STAY" &&
-            baseObj.direction === "NONE" &&
-            (state.spriteType || "none") !== "none"
-          ) {
-            // For STAY objects, only update the facing direction (or wait).
-            type Option =
-              | { type: "face"; facing: StaticDirection }
-              | { type: "wait"; waitTime: number };
 
-            const faceOptions: Option[] = [
-              { type: "face", facing: "LEFT" },
-              { type: "face", facing: "RIGHT" },
-              { type: "face", facing: "UP" },
-              { type: "face", facing: "DOWN" },
-              { type: "wait", waitTime: getRandomWaitTime() },
-            ];
-
-            const choice =
-              faceOptions[Math.floor(Math.random() * faceOptions.length)];
-            if (choice.type === "face") {
-              state.facing = choice.facing;
-              state.justMoved = true; // enforce a forced wait after facing change
-            } else {
-              state.waitTime = choice.waitTime;
+            // 3. If the sprite just finished moving, force a wait period.
+            if (state.justMoved) {
+              state.spriteWalkingCounter = 0;
+              state.waitTime = forcedWaitTime;
+              state.justMoved = false;
+              return;
             }
-          } else {
-            // Fallback for any other cases: simply wait.
-            state.waitTime = getRandomWaitTime();
-          }
+
+            // 4. Now choose a new action based on movement type.
+            if (baseObj.movement === "WALK") {
+              // For WALK objects, use the existing options.
+              type Option =
+                | {
+                    type: "move";
+                    dx: number;
+                    dy: number;
+                    facing: StaticDirection;
+                  }
+                | { type: "wait"; waitTime: number };
+
+              const allOptions: Option[] = [
+                { type: "move", dx: BLOCK_SIZE, dy: 0, facing: "RIGHT" },
+                { type: "move", dx: -BLOCK_SIZE, dy: 0, facing: "LEFT" },
+                { type: "move", dx: 0, dy: BLOCK_SIZE, facing: "DOWN" },
+                { type: "move", dx: 0, dy: -BLOCK_SIZE, facing: "UP" },
+                { type: "wait", waitTime: getRandomWaitTime() },
+              ];
+
+              // First filter options by movementType.
+              const optionsByType = allOptions.filter((option) => {
+                if (option.type === "wait") return true;
+                if (state.movementType === "UP_DOWN" && option.dx !== 0)
+                  return false;
+                if (state.movementType === "LEFT_RIGHT" && option.dy !== 0)
+                  return false;
+                return true;
+              });
+
+              // Then filter options based on grid conditions.
+              const validOptions = optionsByType.filter((option) => {
+                if (option.type === "wait") return true;
+
+                // Calculate candidate grid position.
+                const candidateX = state.currentX + option.dx;
+                const candidateY = state.currentY + option.dy;
+                const gridX = Math.round(candidateX / BLOCK_SIZE);
+                const gridY = Math.round(candidateY / BLOCK_SIZE);
+
+                if (!currentMapData) return false;
+
+                // Special handling for Seel sprites (e.g. water conditions).
+                if (baseObj?.sprite === "SPRITE_SEEL") {
+                  const tileX = gridX * 2;
+                  const tileY = gridY * 2 + 1;
+                  if (
+                    tileY < 0 ||
+                    tileY >= currentMapData.tileMap.length ||
+                    tileX < 0 ||
+                    tileX >= currentMapData.tileMap[0].length
+                  ) {
+                    return false;
+                  }
+                  return currentMapData.tileMap[tileY][tileX] === WATER_TILE_ID;
+                } else {
+                  if (
+                    !isSquareWalkable(
+                      gridX,
+                      gridY,
+                      currentMapData.tileMap,
+                      currentMapData.header.tileset,
+                      collisionTiles
+                    )
+                  ) {
+                    return false;
+                  }
+                }
+
+                // Check if another moving sprite occupies the cell.
+                const occupiedByMoving = Object.values(newStates).some(
+                  (otherState) => {
+                    if (otherState === state) return false;
+                    return (
+                      Math.round(otherState.currentX / BLOCK_SIZE) === gridX &&
+                      Math.round(otherState.currentY / BLOCK_SIZE) === gridY
+                    );
+                  }
+                );
+                if (occupiedByMoving) return false;
+
+                // Check if any static (non‑moving) object occupies the cell.
+                const occupiedByStatic =
+                  currentMapData.mapObjects?.object_events.some((obj) => {
+                    if (obj.movement === "WALK") return false;
+                    return obj.x === gridX && obj.y === gridY;
+                  });
+                if (occupiedByStatic) return false;
+
+                // Ensure sprite doesn't move too far from its original cell.
+                const tetherRange = 5;
+                const distanceX = Math.abs(state.initialX / BLOCK_SIZE - gridX);
+                const distanceY = Math.abs(state.initialY / BLOCK_SIZE - gridY);
+                if (distanceX > tetherRange || distanceY > tetherRange)
+                  return false;
+
+                return true;
+              });
+
+              // If no valid move options, stay in place.
+              if (validOptions.length === 0) {
+                state.targetX = state.currentX;
+                state.targetY = state.currentY;
+                return;
+              }
+
+              // Randomly choose one of the valid options.
+              const choice =
+                validOptions[Math.floor(Math.random() * validOptions.length)];
+              if (choice.type === "wait") {
+                state.waitTime = choice.waitTime;
+              } else {
+                state.targetX = state.currentX + choice.dx;
+                state.targetY = state.currentY + choice.dy;
+                state.facing = choice.facing;
+                state.justMoved = true;
+              }
+            } else if (
+              baseObj.movement === "STAY" &&
+              baseObj.direction === "NONE" &&
+              (state.spriteType || "none") !== "none"
+            ) {
+              // For STAY objects, only update the facing direction (or wait).
+              type Option =
+                | { type: "face"; facing: StaticDirection }
+                | { type: "wait"; waitTime: number };
+
+              const faceOptions: Option[] = [
+                { type: "face", facing: "LEFT" },
+                { type: "face", facing: "RIGHT" },
+                { type: "face", facing: "UP" },
+                { type: "face", facing: "DOWN" },
+                { type: "wait", waitTime: getRandomWaitTime() },
+              ];
+
+              const choice =
+                faceOptions[Math.floor(Math.random() * faceOptions.length)];
+              if (choice.type === "face") {
+                state.facing = choice.facing;
+                state.justMoved = true; // enforce a forced wait after facing change
+              } else {
+                state.waitTime = choice.waitTime;
+              }
+            } else {
+              // Fallback for any other cases: simply wait.
+              state.waitTime = getRandomWaitTime();
+            }
+          });
+
+          // Draw the updated states
+          drawMovingSprites(newStates);
+          return newStates;
         });
 
-        // Draw the updated states.
-        drawMovingSprites(newStates);
-        return newStates;
-      });
-    }, SPRITE_ANIMATION_DELAY);
+        lastFrameTime = timestamp;
+      }
 
-    return () => clearInterval(intervalId);
+      // Request next frame
+      animationFrameId = requestAnimationFrame(animate);
+    }
+
+    // Start the animation
+    animationFrameId = requestAnimationFrame(animate);
+
+    // Cleanup function
+    return () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+    };
   }, [currentMapData, drawMovingSprites]);
   //
   // Draw the zoomed preview of a selected tile.
@@ -1043,6 +1063,7 @@ function App() {
       }
       return;
     }
+
     // Check if the current tileset should animate water or water+flower.
     const tsId = tilesetConstants[currentMapData.header.tileset];
     if (tsId === undefined) return;
@@ -1102,111 +1123,127 @@ function App() {
     const offscreenCtx = offscreenWaterCanvas.getContext("2d");
     if (!offscreenCtx) return;
 
-    // Counter for animation frames (for water and to drive flower cycles as well)
-    let waterAnimCounter = 0;
-
-    const intervalId = setInterval(() => {
-      waterAnimCounter = (waterAnimCounter + 1) & 7;
-      const direction: "left" | "right" =
-        (waterAnimCounter & 4) !== 0 ? "left" : "right";
-      // Animate water tile image data.
-      const animateWaterTileImageData = (
-        imgData: ImageData,
-        dir: "left" | "right"
-      ) => {
-        const data = imgData.data;
-        const width = imgData.width;
-        const height = imgData.height;
-        for (let row = 0; row < height; row++) {
-          if (dir === "left") {
-            const start = row * width * 4;
-            const firstPixel = data.slice(start, start + 4);
-            for (let col = 0; col < width - 1; col++) {
-              const src = start + (col + 1) * 4;
-              const dest = start + col * 4;
-              data[dest] = data[src];
-              data[dest + 1] = data[src + 1];
-              data[dest + 2] = data[src + 2];
-              data[dest + 3] = data[src + 3];
-            }
-            const lastStart = start + (width - 1) * 4;
-            data[lastStart] = firstPixel[0];
-            data[lastStart + 1] = firstPixel[1];
-            data[lastStart + 2] = firstPixel[2];
-            data[lastStart + 3] = firstPixel[3];
-          } else {
-            const start = row * width * 4;
-            const lastPixel = data.slice(
-              start + (width - 1) * 4,
-              start + width * 4
-            );
-            for (let col = width - 1; col > 0; col--) {
-              const src = start + (col - 1) * 4;
-              const dest = start + col * 4;
-              data[dest] = data[src];
-              data[dest + 1] = data[src + 1];
-              data[dest + 2] = data[src + 2];
-              data[dest + 3] = data[src + 3];
-            }
-            data[start] = lastPixel[0];
-            data[start + 1] = lastPixel[1];
-            data[start + 2] = lastPixel[2];
-            data[start + 3] = lastPixel[3];
+    // Animate water tile image data function
+    const animateWaterTileImageData = (
+      imgData: ImageData,
+      dir: "left" | "right"
+    ) => {
+      const data = imgData.data;
+      const width = imgData.width;
+      const height = imgData.height;
+      for (let row = 0; row < height; row++) {
+        if (dir === "left") {
+          const start = row * width * 4;
+          const firstPixel = data.slice(start, start + 4);
+          for (let col = 0; col < width - 1; col++) {
+            const src = start + (col + 1) * 4;
+            const dest = start + col * 4;
+            data[dest] = data[src];
+            data[dest + 1] = data[src + 1];
+            data[dest + 2] = data[src + 2];
+            data[dest + 3] = data[src + 3];
           }
-        }
-      };
-
-      animateWaterTileImageData(waterTileImageData, direction);
-      offscreenCtx.putImageData(waterTileImageData, 0, 0);
-      waterCtx.clearRect(0, 0, waterCanvas.width, waterCanvas.height);
-
-      // Draw animated water tiles.
-      waterPositions.forEach((pos) => {
-        waterCtx.drawImage(
-          offscreenWaterCanvas,
-          0,
-          0,
-          TILE_SIZE,
-          TILE_SIZE,
-          pos.x * TILE_SIZE * DISPLAY_SCALE,
-          pos.y * TILE_SIZE * DISPLAY_SCALE,
-          TILE_SIZE * DISPLAY_SCALE,
-          TILE_SIZE * DISPLAY_SCALE
-        );
-      });
-
-      // If using WATER_FLOWER, also update the flower tiles.
-      if (tilesetDef.animation === TileAnimation.WATER_FLOWER) {
-        const modFlower = waterAnimCounter & 3;
-        let flowerKey: string;
-        if (modFlower < 2) {
-          flowerKey = "flower/flower1.png";
-        } else if (modFlower === 2) {
-          flowerKey = "flower/flower2.png";
+          const lastStart = start + (width - 1) * 4;
+          data[lastStart] = firstPixel[0];
+          data[lastStart + 1] = firstPixel[1];
+          data[lastStart + 2] = firstPixel[2];
+          data[lastStart + 3] = firstPixel[3];
         } else {
-          flowerKey = "flower/flower3.png";
-        }
-        const flowerImage = recoloredFlowers[flowerKey];
-        if (flowerImage) {
-          flowerPositions.forEach((pos) => {
-            waterCtx.drawImage(
-              flowerImage,
-              0,
-              0,
-              TILE_SIZE,
-              TILE_SIZE,
-              pos.x * TILE_SIZE * DISPLAY_SCALE,
-              pos.y * TILE_SIZE * DISPLAY_SCALE,
-              TILE_SIZE * DISPLAY_SCALE,
-              TILE_SIZE * DISPLAY_SCALE
-            );
-          });
+          const start = row * width * 4;
+          const lastPixel = data.slice(
+            start + (width - 1) * 4,
+            start + width * 4
+          );
+          for (let col = width - 1; col > 0; col--) {
+            const src = start + (col - 1) * 4;
+            const dest = start + col * 4;
+            data[dest] = data[src];
+            data[dest + 1] = data[src + 1];
+            data[dest + 2] = data[src + 2];
+            data[dest + 3] = data[src + 3];
+          }
+          data[start] = lastPixel[0];
+          data[start + 1] = lastPixel[1];
+          data[start + 2] = lastPixel[2];
+          data[start + 3] = lastPixel[3];
         }
       }
-    }, WATER_ANIMATION_DELAY);
+    };
 
+    let waterAnimCounter = 0;
+    let lastFrameTime = 0;
+    let animationFrameId: number;
+
+    function animate(timestamp: number) {
+      if (!offscreenCtx || !waterCtx) return;
+      // Control animation speed using timestamp
+      if (timestamp - lastFrameTime >= WATER_ANIMATION_DELAY) {
+        waterAnimCounter = (waterAnimCounter + 1) & 7;
+        const direction: "left" | "right" =
+          (waterAnimCounter & 4) !== 0 ? "left" : "right";
+
+        // Animate water tile image data
+        animateWaterTileImageData(waterTileImageData, direction);
+        offscreenCtx.putImageData(waterTileImageData, 0, 0);
+        waterCtx.clearRect(0, 0, waterCanvas.width, waterCanvas.height);
+
+        // Draw animated water tiles
+        waterPositions.forEach((pos) => {
+          waterCtx.drawImage(
+            offscreenWaterCanvas,
+            0,
+            0,
+            TILE_SIZE,
+            TILE_SIZE,
+            pos.x * TILE_SIZE * DISPLAY_SCALE,
+            pos.y * TILE_SIZE * DISPLAY_SCALE,
+            TILE_SIZE * DISPLAY_SCALE,
+            TILE_SIZE * DISPLAY_SCALE
+          );
+        });
+
+        // If using WATER_FLOWER, also update the flower tiles
+        if (tilesetDef.animation === TileAnimation.WATER_FLOWER) {
+          const modFlower = waterAnimCounter & 3;
+          let flowerKey: string;
+          if (modFlower < 2) {
+            flowerKey = "flower/flower1.png";
+          } else if (modFlower === 2) {
+            flowerKey = "flower/flower2.png";
+          } else {
+            flowerKey = "flower/flower3.png";
+          }
+          const flowerImage = recoloredFlowers[flowerKey];
+          if (flowerImage) {
+            flowerPositions.forEach((pos) => {
+              waterCtx.drawImage(
+                flowerImage,
+                0,
+                0,
+                TILE_SIZE,
+                TILE_SIZE,
+                pos.x * TILE_SIZE * DISPLAY_SCALE,
+                pos.y * TILE_SIZE * DISPLAY_SCALE,
+                TILE_SIZE * DISPLAY_SCALE,
+                TILE_SIZE * DISPLAY_SCALE
+              );
+            });
+          }
+        }
+
+        lastFrameTime = timestamp;
+      }
+
+      // Request next frame
+      animationFrameId = requestAnimationFrame(animate);
+    }
+
+    // Start the animation
+    animationFrameId = requestAnimationFrame(animate);
+
+    // Cleanup function
     return () => {
-      clearInterval(intervalId);
+      cancelAnimationFrame(animationFrameId);
       if (waterOverlayCanvasRef.current) {
         const ctx = waterOverlayCanvasRef.current.getContext("2d");
         if (ctx)
