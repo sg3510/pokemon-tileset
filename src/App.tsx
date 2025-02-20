@@ -1528,6 +1528,53 @@ function App() {
             <p>Map Name: {currentMapData.header.name}</p>
             <p>Map ID: {getMapIdFromHeader(selectedHeader, mapPointers)}</p>
             <p>Size Constant: {currentMapData.header.sizeConst}</p>
+            
+            <div className="pokemon-chars">
+              <h4>Special Characters:</h4>
+              <table>
+                <tbody>
+                  <tr>
+                    <th>Char</th>
+                    <th>Code</th>
+                    <th>Description</th>
+                  </tr>
+                  {[
+  { char: '\uE000', desc: 'm' },
+  { char: '\uE001', desc: 'é' },
+  { char: '\uE002', desc: 'PK' },
+  { char: '\uE003', desc: 'MN' },
+  { char: '\uE004', desc: 'Pokédollar' },
+  { char: '\uE005', desc: 'Q' },
+  { char: '\uE006', desc: 'd' },
+  { char: '\uE007', desc: 'ď' },
+  { char: '\uE008', desc: 'j' },
+  { char: '\uE009', desc: 'l' },
+  { char: '\uE00A', desc: 'ĺ' },
+  { char: '\uE00B', desc: 'ḿ' },
+  { char: '\uE00C', desc: 'ḿ' },
+  { char: '\uE00D', desc: 'ḿ' },
+  { char: '\uE00E', desc: 'ń' },
+  { char: '\uE00F', desc: 'P' },
+  { char: '\uE010', desc: 'ŕ' },
+  { char: '\uE011', desc: 'ŕ' },
+  { char: '\uE012', desc: 'ś' },
+  { char: '\uE013', desc: 'š' },
+  { char: '\uE014', desc: 'ť' },
+  { char: '\uE015', desc: 'ť' },
+  { char: '\uE016', desc: 'v' },
+  { char: '\uE017', desc: 'v' }
+]
+                  .map(({ char, desc }, i) => (
+                    <tr key={i}>
+                      <td>{char}</td>
+                      <td>U+{char.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')}</td>
+                      <td>{desc}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
             <p>
               Tileset Animation:{" "}
               {

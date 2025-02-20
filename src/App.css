@@ -1,6 +1,6 @@
 @font-face {
   font-family: 'Pokemon';
-  src: url('/src/assets/PKMN_RBYGSC.ttf') format('truetype');
+  src: url('/src/assets/pokemon-red-blue-green-yellow-edition-font.ttf') format('truetype');
 }
 
 #root {
