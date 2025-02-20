@@ -1,8 +1,14 @@
+@font-face {
+  font-family: 'Pokemon';
+  src: url('/src/assets/PKMN_RBYGSC.ttf') format('truetype');
+}
+
 #root {
   max-width: 1280px;
   margin: 0 auto;
   padding: 2rem;
   text-align: center;
+  font-family: 'Pokemon', monospace;
 }
 
 .logo {
@@ -88,7 +94,7 @@
   margin: 1px;
   background-color: #f0f0f0;
   border: 1px solid #ddd;
-  font-family: monospace;
+  font-family: 'Pokemon', monospace;
   font-size: 12px;
   min-width: 20px;
   text-align: center;
@@ -136,13 +142,13 @@
 
 .map-info p {
   margin: 5px 0;
-  font-family: monospace;
+  font-family: 'Pokemon', monospace;
 }
 
 .required-files {
   margin: 5px 0;
   padding-left: 20px;
-  font-family: monospace;
+  font-family: 'Pokemon', monospace;
   color: #666;
 }
 
