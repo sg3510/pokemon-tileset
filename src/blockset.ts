@@ -36,7 +36,7 @@ interface Block {
   /**
    * Loads a .blk file.
    * We assume that each byte in the Uint8Array represents a block index.
-   * (This function’s Array.from is typically fast enough, but if you want
+   * (This function's Array.from is typically fast enough, but if you want
    * even more speed you might work directly with the Uint8Array.)
    */
   export function loadBlk(data: Uint8Array): number[] {
@@ -45,11 +45,8 @@ interface Block {
   
   /**
    * Assembles the full tile map from .blk and .bst data.
-   * This version preallocates the full 2D array (with known dimensions)
-   * and then “unrolls” the inner loops so that each 4×4 block is pasted into
-   * the final map with minimal loop overhead.
-   *
-   * The final map will be returned as a two-dimensional array of numbers.
+   * This version handles cases where the .blk file is smaller than the declared dimensions
+   * by filling missing tiles with 0.
    */
   export function assembleMap(
     blkData: number[],
@@ -62,13 +59,17 @@ interface Block {
     // Preallocate final 2D array:
     const finalMap: number[][] = new Array(totalRows);
     for (let r = 0; r < totalRows; r++) {
-      finalMap[r] = new Array(totalCols);
+      finalMap[r] = new Array(totalCols).fill(0); // Initialize with 0s
     }
     
     const { blocks } = blockset;
     for (let by = 0; by < blocksH; by++) {
       for (let bx = 0; bx < blocksW; bx++) {
         const blkIndex = by * blocksW + bx;
+        // Skip if we've run out of block data
+        if (blkIndex >= blkData.length) {
+          continue;
+        }
         const blockIndex = blkData[blkIndex];
         if (blockIndex >= blocks.length) {
           // Out-of-range block index; you might handle this as needed.
@@ -80,7 +81,7 @@ interface Block {
         const baseY = by * 4;
         const baseX = bx * 4;
   
-        // With a 4×4 fixed grid we can simply “unroll” the inner loops:
+        // With a 4×4 fixed grid we can simply "unroll" the inner loops:
         finalMap[baseY + 0][baseX + 0] = block.tiles[0][0];
         finalMap[baseY + 0][baseX + 1] = block.tiles[0][1];
         finalMap[baseY + 0][baseX + 2] = block.tiles[0][2];
