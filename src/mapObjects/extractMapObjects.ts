@@ -51,12 +51,22 @@ export type ObjectEvent =
       optionalParam2?: string | number;
     };
 
-export function extractMapObjects(asmFileContent: string): MapObjectData {
+export interface ExtractMapObjectsOptions {
+  skipOverlapping?: boolean;
+}
+
+export function extractMapObjects(
+  asmFileContent: string, 
+  options: ExtractMapObjectsOptions = { skipOverlapping: true }
+): MapObjectData {
     const lines = asmFileContent.split('\n');
 
     const warpEvents: WarpEvent[] = [];
     const bgEvents: BgEvent[] = [];
     const objectEvents: ObjectEvent[] = [];
+    
+    // Track occupied positions only if we're skipping overlapping objects
+    const occupiedPositions = new Set<string>();
 
     let inWarpEvents = false;
     let inBgEvents = false;
@@ -122,6 +132,22 @@ export function extractMapObjects(asmFileContent: string): MapObjectData {
             );
             if (match) {
               const [, x, y, sprite, movement, direction, textScript, optionalParam1, optionalParam2] = match;
+              const posKey = `${x},${y}`;
+
+              // Skip overlapping objects only if the option is enabled
+              if (options.skipOverlapping && occupiedPositions.has(posKey)) {
+                console.warn(
+                  `Warning: Skipping overlapping object at position (${x}, ${y}) in map. ` +
+                  `Sprite: ${sprite}, Text: ${textScript}`
+                );
+                continue;
+              }
+
+              // Mark position as occupied if we're tracking overlaps
+              if (options.skipOverlapping) {
+                occupiedPositions.add(posKey);
+              }
+
               // Based on the movement string, create the correct object type:
               let objectEvent: ObjectEvent;
               if (movement === "STAY") {
