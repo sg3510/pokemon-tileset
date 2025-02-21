@@ -102,12 +102,14 @@
 
 .map-display {
   margin: 20px;
-  overflow: auto;
+  overflow: hidden; /* Remove internal scrolling */
   max-height: 80vh;
   border: 10px solid #851313;
   padding: 0px;
-  background: #f0f0f0;
+  /* background: #f0f0f0; */
+  min-width: max-content; /* Ensures full map width is preserved */
 }
+
 
 .tile-grid {
   display: inline-block; /* Keep the grid contained to its content */
@@ -204,7 +206,7 @@
   position: fixed;
   bottom: 0;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translateX(-52.5%);
   max-width: 500px;
   width: 90%; /* responsive width */
   height: 150px;  /* keep this fixed height */
@@ -214,7 +216,7 @@
   /* set up the border so that its image uses our nine-slice image */
   border-style: solid;
   border-width: 12px 10px 12px 10px; /* top/right/bottom/left */
-  border-image-source: url('src/assets/textbox.png');
+  border-image-source: url('/textbox.png');
   /* The image is sliced 18px in from all sides; the "fill" keyword tells the center to be used as the background */
   border-image-slice: 18 fill;
   /* 
@@ -240,7 +242,6 @@
   font-family: 'Pokemon', monospace;
   font-size: 24px;
   color: black;
-  /* Add these new properties */
   max-height: 120px; /* slightly less than textbox height to account for padding */
   overflow-y: auto; /* enables vertical scrolling */
   padding-right: 10px; /* gives space for the scrollbar */

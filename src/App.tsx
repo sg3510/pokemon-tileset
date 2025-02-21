@@ -629,6 +629,9 @@ function App() {
           });
         }
         setMovingStates(newMovingStates);
+
+        // 11. Display text
+        setDisplayText("");
       } catch (error: any) {
         if (error.name !== "AbortError") {
           console.error("Error in header/map loading chain:", error);
@@ -1382,31 +1385,17 @@ function App() {
   //
   // Revised handleEventOverlayClick:
   const handleEventOverlayClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!currentMapData || !currentMapData.mapObjects) return;
-    const rect = eventOverlayCanvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const clickX = e.clientX - rect.left;
-    const clickY = e.clientY - rect.top;
+    if (!currentMapData || !currentMapData.mapObjects || !eventOverlayCanvasRef.current)
+      return;
+    const rect = eventOverlayCanvasRef.current.getBoundingClientRect();
+    const scaleX = eventOverlayCanvasRef.current.width / rect.width;
+    const scaleY = eventOverlayCanvasRef.current.height / rect.height;
+    const clickX = (e.clientX - rect.left) * scaleX;
+    const clickY = (e.clientY - rect.top) * scaleY;
     const tileWidth = BLOCK_SIZE * DISPLAY_SCALE;
     const tileX = Math.floor(clickX / tileWidth);
     const tileY = Math.floor(clickY / tileWidth);
-
-    // Helper function to generate the text from a linked text object.
-    const getDisplayText = (textData: ExtractedText): string => {
-      let text = '';
-      if (textData.type === "text") {
-        text = textData.text.join("\n");
-      } else if (textData.type === "trainer") {
-        text = `${textData.textBefore}\n${textData.textEnd}\n${textData.textAfter}`;
-      }
-      // Replace #MON with special characters
-      return text.replace(/#MON/g, "POK\uE001MON").replace(/#DEX/g, "POK\uE001DEX").replace(/# BALL/g, "POK\uE001BALL");
-    };
-
-    // Clear existing text
     setDisplayText(null);
-
-    // 1. Check for warp events first.
     const warpEvent = currentMapData.mapObjects.warp_events.find(
       (event) => !event.isDebug && event.x === tileX && event.y === tileY
     );
@@ -1425,39 +1414,39 @@ function App() {
             return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
           })
           .join("") + ".asm";
-
       const matchingHeader = AVAILABLE_HEADERS.find(
         (header) => header.toLowerCase() === targetHeader.toLowerCase()
       );
       if (matchingHeader) {
         handleMapChange(matchingHeader);
       } else {
-        console.warn(
-          `Target map ${targetHeader} not found in available headers`
-        );
+        console.warn(`Target map ${targetHeader} not found in available headers`);
       }
       return;
     }
-
-    // 2. Next, check for bg_events (e.g. signs).
     const bgEvent = currentMapData.mapObjects.bg_events.find(
       (event) => event.x === tileX && event.y === tileY
     );
     if (bgEvent) {
+      const getDisplayText = (textData: ExtractedText): string => {
+        let text = '';
+        if (textData.type === "text") {
+          text = textData.text.join("\n");
+        } else if (textData.type === "trainer") {
+          text = `${textData.textBefore}\n${textData.textEnd}\n${textData.textAfter}`;
+        }
+        return text.replace(/#/g, "POK\uE001");
+      };
       const textData = linkedTextRef.current[bgEvent.scriptId];
       if (textData) {
         setDisplayText(getDisplayText(textData));
         return;
       }
     }
-
-    // 3. Finally, check for object_events (including trainers).
-    // Note: For moving objects, use the current moving state to determine the grid.
     const objectEventIndex = currentMapData.mapObjects.object_events.findIndex(
       (obj, index) => {
         let objX: number, objY: number;
         if (obj.movement === "WALK") {
-          // Use the current moving state if available.
           const movingState = _movingStates[index];
           if (movingState) {
             objX = Math.round(movingState.currentX / BLOCK_SIZE);
@@ -1474,8 +1463,16 @@ function App() {
       }
     );
     if (objectEventIndex !== -1) {
-      const objEvent =
-        currentMapData.mapObjects.object_events[objectEventIndex];
+      const objEvent = currentMapData.mapObjects.object_events[objectEventIndex];
+      const getDisplayText = (textData: ExtractedText): string => {
+        let text = '';
+        if (textData.type === "text") {
+          text = textData.text.join("\n");
+        } else if (textData.type === "trainer") {
+          text = `${textData.textBefore}\n${textData.textEnd}\n${textData.textAfter}`;
+        }
+        return text.replace(/#/g, "POK\uE001");
+      };
       const textData = linkedTextRef.current[objEvent.textScript];
       if (textData) {
         setDisplayText(getDisplayText(textData));
@@ -1483,6 +1480,7 @@ function App() {
       }
     }
   };
+  
 
   //
   // Update URL whenever selectedHeader or paletteMode changes
