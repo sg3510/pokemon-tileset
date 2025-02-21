@@ -1384,14 +1384,26 @@ function App() {
   // NEW: Handle clicks on the event overlay canvas.
   //
   // Revised handleEventOverlayClick:
-  const handleEventOverlayClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const handleEventOverlayClick = (
+    e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>
+  ) => {
     if (!currentMapData || !currentMapData.mapObjects || !eventOverlayCanvasRef.current)
       return;
     const rect = eventOverlayCanvasRef.current.getBoundingClientRect();
+    let clientX: number, clientY: number;
+    if ("touches" in e && e.touches.length > 0) {
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+    } else if ("clientX" in e) {
+      clientX = e.clientX;
+      clientY = e.clientY;
+    } else {
+      return;
+    }
     const scaleX = eventOverlayCanvasRef.current.width / rect.width;
     const scaleY = eventOverlayCanvasRef.current.height / rect.height;
-    const clickX = (e.clientX - rect.left) * scaleX;
-    const clickY = (e.clientY - rect.top) * scaleY;
+    const clickX = (clientX - rect.left) * scaleX;
+    const clickY = (clientY - rect.top) * scaleY;
     const tileWidth = BLOCK_SIZE * DISPLAY_SCALE;
     const tileX = Math.floor(clickX / tileWidth);
     const tileY = Math.floor(clickY / tileWidth);
@@ -1429,7 +1441,7 @@ function App() {
     );
     if (bgEvent) {
       const getDisplayText = (textData: ExtractedText): string => {
-        let text = '';
+        let text = "";
         if (textData.type === "text") {
           text = textData.text.join("\n");
         } else if (textData.type === "trainer") {
@@ -1465,7 +1477,7 @@ function App() {
     if (objectEventIndex !== -1) {
       const objEvent = currentMapData.mapObjects.object_events[objectEventIndex];
       const getDisplayText = (textData: ExtractedText): string => {
-        let text = '';
+        let text = "";
         if (textData.type === "text") {
           text = textData.text.join("\n");
         } else if (textData.type === "trainer") {
@@ -1480,8 +1492,6 @@ function App() {
       }
     }
   };
-  
-
   //
   // Update URL whenever selectedHeader or paletteMode changes
   //
