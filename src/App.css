@@ -199,3 +199,49 @@
     font-size: 0.9rem;
   }
 }
+
+.textbox {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 500px;
+  width: 90%; /* responsive width */
+  height: 150px;  /* keep this fixed height */
+  overflow: hidden; /* ensure the border doesn't get affected by scroll */
+  box-sizing: border-box;
+
+  /* set up the border so that its image uses our nine-slice image */
+  border-style: solid;
+  border-width: 12px 10px 12px 10px; /* top/right/bottom/left */
+  border-image-source: url('src/assets/textbox.png');
+  /* The image is sliced 18px in from all sides; the "fill" keyword tells the center to be used as the background */
+  border-image-slice: 18 fill;
+  /* 
+    Use border-image-width to adjust how the drawn border relates to our border-width.
+    Here the multiplier for top and bottom is 1.5 (12×1.5 = 18) 
+    and for left and right is 1.8 (10×1.8 = 18),
+    ensuring the fixed (non‑stretched) corner pieces come out as 18×18.
+  */
+  border-image-width: 1.5 1.8 1.5 1.8;
+  /* Use stretch (or round if you prefer repeating the edge sections) */
+  border-image-repeat: stretch;
+  
+  /* background-color: white; /* the textbox middle is white */
+  padding: 10px; /* adjust to control inner spacing */
+  margin: 10px;
+  z-index: 10000;
+  image-rendering: pixelated; /* keep the pixel art crisp */
+}
+
+.textbox-content {
+  margin-top: -8px;
+  text-align: left;
+  font-family: 'Pokemon', monospace;
+  font-size: 24px;
+  color: black;
+  /* Add these new properties */
+  max-height: 120px; /* slightly less than textbox height to account for padding */
+  overflow-y: auto; /* enables vertical scrolling */
+  padding-right: 10px; /* gives space for the scrollbar */
+}

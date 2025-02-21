@@ -1,22 +1,25 @@
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+// import fs from 'fs';
+// import path from 'path';
+// import { fileURLToPath } from 'url';
+// import { dirname } from 'path';
+// import { AVAILABLE_HEADERS } from '../constants/const.js';
+// const __filename = fileURLToPath(import.meta.url);
+// const __dirname = dirname(__filename);
 
 /**
  * For non-trainer text pointers we return an array of final text pointer strings.
  * For trainer text pointers we return an object with three parts.
  */
 export type ExtractedText =
-  | string[]
   | {
       type: "trainer";
       textBefore: string;
       textEnd: string;
       textAfter: string;
+    }
+  | {
+      type: "text";
+      text: string[];
     };
 
 /**
@@ -234,7 +237,6 @@ export function extractScriptTextPointers(asmContent: string): ScriptTextData {
     if (!def.textID.startsWith("TEXT_")) continue;
     const textBlock = getTextAsmBlock(asmContent, def.pointerName);
 
-    // Modified condition to detect trainer text pointers:
     if (/TalkToTrainer/i.test(textBlock) || /ld\s+hl,\s*\S*TrainerHeader/i.test(textBlock)) {
       // Trainer flow: extract the trainer header label.
       if (trainerIndex < trainerMacros.length) {
@@ -249,12 +251,18 @@ export function extractScriptTextPointers(asmContent: string): ScriptTextData {
           textAfter: resolvedAfter,
         };
       } else {
-        result[def.textID] = [def.pointerName];
+        result[def.textID] = {
+          type: "text",
+          text: [def.pointerName]
+        };
       }
     } else {
-      // Non-trainer text: use DFS traversal to follow all branches.
+      // Non-trainer text: now includes type field
       const finalPointers = followTextBlock(asmContent, def.pointerName);
-      result[def.textID] = finalPointers.length > 0 ? finalPointers : [def.pointerName];
+      result[def.textID] = {
+        type: "text",
+        text: finalPointers.length > 0 ? finalPointers : [def.pointerName]
+      };
     }
   }
   return result;
@@ -264,11 +272,14 @@ export function extractScriptTextPointers(asmContent: string): ScriptTextData {
 /* 7. Testing                                              */
 /* ────────────────────────────────────────────────────────── */
 // For example, testing with Route15.asm
-const asmFilePath = path.join(__dirname, '../../public/pkassets/scripts/FuchsiaCity.asm');
-if (fs.existsSync(asmFilePath)) {
-  const asmContent: string = fs.readFileSync(asmFilePath, 'utf8');
-  const extracted: ScriptTextData = extractScriptTextPointers(asmContent);
-  console.log(JSON.stringify(extracted, null, 2));
-} else {
-  console.error(`File not found: ${asmFilePath}`);
-}
+// loop through all files at '../../public/pkassets/scripts/FILENAME.asm' from the constants of the array AVAILABLE_HEADERS
+// for (const header of ["CinnabarIsland.asm", "VermilionCity.asm", "Route15.asm"]) {
+//   const asmFilePath = path.join(__dirname, `../../public/pkassets/scripts/${header}`);
+// if (fs.existsSync(asmFilePath)) {
+//   const asmContent: string = fs.readFileSync(asmFilePath, 'utf8');
+//   const extracted: ScriptTextData = extractScriptTextPointers(asmContent);
+//   console.log(JSON.stringify(extracted, null, 2));
+// } else {
+//   console.error(`File not found: ${asmFilePath}`);
+// }
+// }

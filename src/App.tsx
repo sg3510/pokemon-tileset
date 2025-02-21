@@ -36,6 +36,13 @@ import {
 } from "./constants";
 import { getSpriteFrame, SpriteType } from "./sprites/spriteHelper";
 import { usePreloadedSprites } from "./hooks/usePreloadedSprites";
+import {
+  ExtractedText,
+  extractScriptTextPointers,
+  ScriptTextData,
+} from "./text/extractScriptTextPointers";
+import { extractTextFromASM } from "./text/extractText";
+import { linkTextPointerToText } from "./text/linkTextPointerToText";
 
 //
 // Interfaces
@@ -136,6 +143,8 @@ function App() {
 
   const spriteMetaCacheRef = useRef<Map<string, SpriteType>>(new Map());
 
+  const linkedTextRef = useRef<ScriptTextData>({});
+
   // Cached startup data.
   const [cachedConstants, setCachedConstants] = useState<
     Record<string, { width: number; height: number }>
@@ -167,6 +176,9 @@ function App() {
 
   const collisionTiles = parseCollisionTiles();
   // console.log(collisionTiles);
+
+  // Add new state for text display
+  const [displayText, setDisplayText] = useState<string | null>(null);
 
   // Update lastValidMap whenever we successfully change maps
   useEffect(() => {
@@ -439,7 +451,14 @@ function App() {
           throw new Error(`Tileset image ${newSelectedImage} not loaded`);
 
         // 4. Fetch the map and blockset files concurrently.
-        const [blkResponse, bstResponse, objResponse] = await Promise.all([
+        const [
+          blkResponse,
+          bstResponse,
+          objResponse,
+          scriptResponse,
+          script2Response,
+          textResponse,
+        ] = await Promise.all([
           fetch(`/pokemon-tileset/pkassets/maps/${newSelectedMap}`, {
             signal: controller.signal,
           }),
@@ -450,9 +469,32 @@ function App() {
             `/pokemon-tileset/pkassets/data/maps/objects/${newSelectedObjectFile}`,
             { signal: controller.signal }
           ),
+          fetch(`/pokemon-tileset/pkassets/scripts/${newHeader.name}.asm`).then(
+            (r) => r.text()
+          ),
+          // Try to fetch _2 file, return null if it doesn't exist
+          fetch(`/pokemon-tileset/pkassets/scripts/${newHeader.name}_2.asm`)
+            .then((r) => r.text())
+            .catch(() => null),
+          fetch(`/pokemon-tileset/pkassets/text/${newHeader.name}.asm`).then(
+            (r) => r.text()
+          ),
         ]);
         if (!blkResponse.ok || !bstResponse.ok || !objResponse.ok)
           throw new Error("Error loading map, blockset, or object file");
+        // load text
+        // Combine script content if _2 file exists
+        const fullScriptText = script2Response
+          ? `${scriptResponse}\n${script2Response}`
+          : scriptResponse;
+
+        // Process text data
+        const scriptPointers = extractScriptTextPointers(fullScriptText);
+        const extractedText = extractTextFromASM(textResponse);
+        const linkedText = linkTextPointerToText(scriptPointers, extractedText);
+        linkedTextRef.current = linkedText;
+
+        //
         const blkData = new Uint8Array(await blkResponse.arrayBuffer());
         const blocksetData = new Uint8Array(await bstResponse.arrayBuffer());
 
@@ -1338,6 +1380,7 @@ function App() {
   //
   // NEW: Handle clicks on the event overlay canvas.
   //
+  // Revised handleEventOverlayClick:
   const handleEventOverlayClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!currentMapData || !currentMapData.mapObjects) return;
     const rect = eventOverlayCanvasRef.current?.getBoundingClientRect();
@@ -1347,23 +1390,35 @@ function App() {
     const tileWidth = BLOCK_SIZE * DISPLAY_SCALE;
     const tileX = Math.floor(clickX / tileWidth);
     const tileY = Math.floor(clickY / tileWidth);
+
+    // Helper function to generate the text from a linked text object.
+    const getDisplayText = (textData: ExtractedText): string => {
+      let text = '';
+      if (textData.type === "text") {
+        text = textData.text.join("\n");
+      } else if (textData.type === "trainer") {
+        text = `${textData.textBefore}\n${textData.textEnd}\n${textData.textAfter}`;
+      }
+      // Replace #MON with special characters
+      return text.replace(/#MON/g, "POK\uE001MON").replace(/#DEX/g, "POK\uE001DEX").replace(/# BALL/g, "POK\uE001BALL");
+    };
+
+    // Clear existing text
+    setDisplayText(null);
+
+    // 1. Check for warp events first.
     const warpEvent = currentMapData.mapObjects.warp_events.find(
       (event) => !event.isDebug && event.x === tileX && event.y === tileY
     );
-
     if (warpEvent) {
-      // Special handling for LAST_MAP
       if (warpEvent.targetMap === "LAST_MAP") {
         handleMapChange(lastValidMap);
         return;
       }
-
-      // Convert ROUTE_18_GATE_1F to Route18Gate1F.asm
       const targetHeader =
         warpEvent.targetMap
           .split("_")
           .map((word) => {
-            // Keep 1F, 2F, B1F, B2F, etc. uppercase at the end
             if (word.match(/^[B]?[0-9]+F$/)) {
               return word;
             }
@@ -1371,17 +1426,60 @@ function App() {
           })
           .join("") + ".asm";
 
-      // Find the matching header, ignoring case
       const matchingHeader = AVAILABLE_HEADERS.find(
         (header) => header.toLowerCase() === targetHeader.toLowerCase()
       );
-
       if (matchingHeader) {
         handleMapChange(matchingHeader);
       } else {
         console.warn(
           `Target map ${targetHeader} not found in available headers`
         );
+      }
+      return;
+    }
+
+    // 2. Next, check for bg_events (e.g. signs).
+    const bgEvent = currentMapData.mapObjects.bg_events.find(
+      (event) => event.x === tileX && event.y === tileY
+    );
+    if (bgEvent) {
+      const textData = linkedTextRef.current[bgEvent.scriptId];
+      if (textData) {
+        setDisplayText(getDisplayText(textData));
+        return;
+      }
+    }
+
+    // 3. Finally, check for object_events (including trainers).
+    // Note: For moving objects, use the current moving state to determine the grid.
+    const objectEventIndex = currentMapData.mapObjects.object_events.findIndex(
+      (obj, index) => {
+        let objX: number, objY: number;
+        if (obj.movement === "WALK") {
+          // Use the current moving state if available.
+          const movingState = _movingStates[index];
+          if (movingState) {
+            objX = Math.round(movingState.currentX / BLOCK_SIZE);
+            objY = Math.round(movingState.currentY / BLOCK_SIZE);
+          } else {
+            objX = obj.x;
+            objY = obj.y;
+          }
+        } else {
+          objX = obj.x;
+          objY = obj.y;
+        }
+        return objX === tileX && objY === tileY;
+      }
+    );
+    if (objectEventIndex !== -1) {
+      const objEvent =
+        currentMapData.mapObjects.object_events[objectEventIndex];
+      const textData = linkedTextRef.current[objEvent.textScript];
+      if (textData) {
+        setDisplayText(getDisplayText(textData));
+        return;
       }
     }
   };
@@ -1497,6 +1595,13 @@ function App() {
   //
   return (
     <div className="app-container">
+      {/* Only show textbox when there's text to display */}
+      {displayText && (
+        <div className="textbox">
+          <div className="textbox-content">{displayText}</div>
+        </div>
+      )}
+      {/* Image selector */}
       <div className="image-selector">
         <div className="selector-group">
           <label htmlFor="header-select">Choose a header:</label>
@@ -1528,52 +1633,60 @@ function App() {
             <p>Map Name: {currentMapData.header.name}</p>
             <p>Map ID: {getMapIdFromHeader(selectedHeader, mapPointers)}</p>
             <p>Size Constant: {currentMapData.header.sizeConst}</p>
-            
-            <div className="pokemon-chars">
-              <h4>Special Characters:</h4>
-              <table>
-                <tbody>
-                  <tr>
-                    <th>Char</th>
-                    <th>Code</th>
-                    <th>Description</th>
-                  </tr>
-                  {[
-  { char: '\uE000', desc: 'm' },
-  { char: '\uE001', desc: 'é' },
-  { char: '\uE002', desc: 'PK' },
-  { char: '\uE003', desc: 'MN' },
-  { char: '\uE004', desc: 'Pokédollar' },
-  { char: '\uE005', desc: 'Q' },
-  { char: '\uE006', desc: 'd' },
-  { char: '\uE007', desc: 'ď' },
-  { char: '\uE008', desc: 'j' },
-  { char: '\uE009', desc: 'l' },
-  { char: '\uE00A', desc: 'ĺ' },
-  { char: '\uE00B', desc: 'ḿ' },
-  { char: '\uE00C', desc: 'ḿ' },
-  { char: '\uE00D', desc: 'ḿ' },
-  { char: '\uE00E', desc: 'ń' },
-  { char: '\uE00F', desc: 'P' },
-  { char: '\uE010', desc: 'ŕ' },
-  { char: '\uE011', desc: 'ŕ' },
-  { char: '\uE012', desc: 'ś' },
-  { char: '\uE013', desc: 'š' },
-  { char: '\uE014', desc: 'ť' },
-  { char: '\uE015', desc: 'ť' },
-  { char: '\uE016', desc: 'v' },
-  { char: '\uE017', desc: 'v' }
-]
-                  .map(({ char, desc }, i) => (
-                    <tr key={i}>
-                      <td>{char}</td>
-                      <td>U+{char.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')}</td>
-                      <td>{desc}</td>
+
+            {false && (
+              <div className="pokemon-chars">
+                <h4>Special Characters:</h4>
+                <table>
+                  <tbody>
+                    <tr>
+                      <th>Char</th>
+                      <th>Code</th>
+                      <th>Description</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                    {[
+                      { char: "\uE000", desc: "m" },
+                      { char: "\uE001", desc: "é" },
+                      { char: "\uE002", desc: "PK" },
+                      { char: "\uE003", desc: "MN" },
+                      { char: "\uE004", desc: "Pokédollar" },
+                      { char: "\uE005", desc: "Q" },
+                      { char: "\uE006", desc: "d" },
+                      { char: "\uE007", desc: "ď" },
+                      { char: "\uE008", desc: "j" },
+                      { char: "\uE009", desc: "l" },
+                      { char: "\uE00A", desc: "ĺ" },
+                      { char: "\uE00B", desc: "ḿ" },
+                      { char: "\uE00C", desc: "ḿ" },
+                      { char: "\uE00D", desc: "ḿ" },
+                      { char: "\uE00E", desc: "ń" },
+                      { char: "\uE00F", desc: "P" },
+                      { char: "\uE010", desc: "ŕ" },
+                      { char: "\uE011", desc: "ŕ" },
+                      { char: "\uE012", desc: "ś" },
+                      { char: "\uE013", desc: "š" },
+                      { char: "\uE014", desc: "ť" },
+                      { char: "\uE015", desc: "ť" },
+                      { char: "\uE016", desc: "v" },
+                      { char: "\uE017", desc: "v" },
+                    ].map(({ char, desc }, i) => (
+                      <tr key={i}>
+                        <td>{char}</td>
+                        <td>
+                          U+
+                          {char
+                            .charCodeAt(0)
+                            .toString(16)
+                            .toUpperCase()
+                            .padStart(4, "0")}
+                        </td>
+                        <td>{desc}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
             <p>
               Tileset Animation:{" "}
