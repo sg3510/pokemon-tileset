@@ -218,7 +218,7 @@ function followTextBlock(asmContent: string, label: string, visited: Set<string>
  * extractScriptTextPointers processes the entire ASM file.
  * For each pointer definition from a _TextPointers section:
  *
- * - If its text_asm block calls TalkToTrainer, we treat it as a trainer pointer.
+ * - If its text_asm block calls or references TalkToTrainer or loads a TrainerHeader, we treat it as a trainer pointer.
  *   We then extract the trainer header label, consume the next trainer macro,
  *   and resolve its three pointers via the global chain.
  *
@@ -234,7 +234,8 @@ export function extractScriptTextPointers(asmContent: string): ScriptTextData {
     if (!def.textID.startsWith("TEXT_")) continue;
     const textBlock = getTextAsmBlock(asmContent, def.pointerName);
 
-    if (/call\s+TalkToTrainer/i.test(textBlock)) {
+    // Modified condition to detect trainer text pointers:
+    if (/TalkToTrainer/i.test(textBlock) || /ld\s+hl,\s*\S*TrainerHeader/i.test(textBlock)) {
       // Trainer flow: extract the trainer header label.
       if (trainerIndex < trainerMacros.length) {
         const trainer = trainerMacros[trainerIndex++];
@@ -262,8 +263,8 @@ export function extractScriptTextPointers(asmContent: string): ScriptTextData {
 /* ────────────────────────────────────────────────────────── */
 /* 7. Testing                                              */
 /* ────────────────────────────────────────────────────────── */
-// For example, testing with VermilionCity.asm
-const asmFilePath = path.join(__dirname, '../../public/pkassets/scripts/Route21.asm');
+// For example, testing with Route15.asm
+const asmFilePath = path.join(__dirname, '../../public/pkassets/scripts/FuchsiaCity.asm');
 if (fs.existsSync(asmFilePath)) {
   const asmContent: string = fs.readFileSync(asmFilePath, 'utf8');
   const extracted: ScriptTextData = extractScriptTextPointers(asmContent);
