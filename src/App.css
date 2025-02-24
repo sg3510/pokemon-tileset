@@ -100,15 +100,17 @@
   text-align: center;
 }
 
-.map-display {
+.map-container {
+  /* max-width: 10vw; */
+  /* Remove or comment out the next line to avoid unwanted vertical compression */
+  /* max-height: 100vh; */
+  overflow: auto;
+  position: relative;
+  /* border: 1px solid #000; */
   margin: 20px;
-  overflow: hidden; /* Remove internal scrolling */
-  max-height: 80vh;
-  border: 10px solid #851313;
-  padding: 0px;
-  /* background: #f0f0f0; */
-  min-width: max-content; /* Ensures full map width is preserved */
+
 }
+
 
 
 .tile-grid {
@@ -183,7 +185,7 @@
   
   /* Scale down the canvases to fit within the viewport nicely */
   .tileset-display canvas,
-  .map-display canvas,
+  /* .map-display canvas, */
   .preview-palette-container canvas {
     width: 100%;
     max-width: 340px; /* Example value: adjust based on actual available width */
@@ -191,9 +193,9 @@
   }
   
   /* If the canvases are side-by-side on desktop, force them into a single column on mobile */
-  .map-display {
+  /* .map-display {
     margin: 10px auto;
-  }
+  } */
   
   /* Adjust map info styling for readability */
   .map-info {

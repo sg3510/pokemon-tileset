@@ -16,4 +16,4 @@ export const TILES_PER_ROW = 16;
 // How often (in ms) the water pixels shift.
 export const WATER_ANIMATION_DELAY = 275;
 // How often (in ms) the sprite animation updates.
-export const SPRITE_ANIMATION_DELAY = 75;
+export const SPRITE_ANIMATION_DELAY = 25;

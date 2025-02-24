@@ -43,18 +43,11 @@ import {
 } from "./text/extractScriptTextPointers";
 import { extractTextFromASM } from "./text/extractText";
 import { linkTextPointerToText } from "./text/linkTextPointerToText";
-
+import { MapHeader } from "./headerExtract/extractHeader";
+import { extractHeader } from "./headerExtract/extractHeader";
 //
 // Interfaces
 //
-interface MapHeader {
-  name: string;
-  sizeConst: string;
-  tileset: string;
-  width?: number;
-  height?: number;
-  actualBlockset: string;
-}
 
 interface MapObjectData {
   warp_events: WarpEvent[];
@@ -92,6 +85,7 @@ interface TileCoordinates {
   y: number;
 }
 
+const DEBUG = false;
 //
 // Main App Component
 //
@@ -179,6 +173,10 @@ function App() {
 
   // Add new state for text display
   const [displayText, setDisplayText] = useState<string | null>(null);
+
+  // Add these state variables near the top of the component with other state declarations
+  const [mapCanvasWidth, setMapCanvasWidth] = useState(0);
+  const [mapCanvasHeight, setMapCanvasHeight] = useState(0);
 
   // Update lastValidMap whenever we successfully change maps
   useEffect(() => {
@@ -415,30 +413,16 @@ function App() {
         if (!headerResponse.ok)
           throw new Error(`HTTP error! Status: ${headerResponse.status}`);
         const headerText = await headerResponse.text();
-        const headerMatch = headerText.match(
-          /map_header\s+(\w+),\s+(\w+),\s+(\w+)/
-        );
-        if (!headerMatch) throw new Error("Failed to parse header file");
         if (currentRequestId !== headerRequestIdRef.current) return;
 
-        const headerName = headerMatch[1];
-        const sizeConst = headerMatch[2];
-        const tilesetName = headerMatch[3].toUpperCase();
-        const dimensions = cachedConstants[sizeConst];
-        if (!dimensions)
-          throw new Error("Map dimensions not found for " + sizeConst);
-        const baseBlockset = (
-          cachedMappings[tilesetName] || tilesetName.toLowerCase()
-        ).replace(/_[1-9]$/, "");
-        const newHeader: MapHeader = {
-          name: headerName,
-          sizeConst,
-          tileset: tilesetName,
-          actualBlockset: baseBlockset,
-          width: dimensions.width,
-          height: dimensions.height,
-        };
-
+        const newHeader = extractHeader(
+          headerText,
+          cachedConstants,
+          cachedMappings
+        );
+        console.log("newHeader", newHeader);
+        console.log("cachedConstants", cachedConstants);
+        console.log("cachedMappings", cachedMappings);
         // 2. Determine file names.
         const newSelectedMap = `${newHeader.name}.blk`;
         const newSelectedBlockset = `${newHeader.actualBlockset}.bst`;
@@ -457,6 +441,7 @@ function App() {
           objResponse,
           scriptResponse,
           script2Response,
+          script3Response,
           textResponse,
         ] = await Promise.all([
           fetch(`/pokemon-tileset/pkassets/maps/${newSelectedMap}`, {
@@ -476,6 +461,10 @@ function App() {
           fetch(`/pokemon-tileset/pkassets/scripts/${newHeader.name}_2.asm`)
             .then((r) => r.text())
             .catch(() => null),
+          // Try to fetch _3 file, return null if it doesn't exist
+          fetch(`/pokemon-tileset/pkassets/scripts/${newHeader.name}_3.asm`)
+            .then((r) => r.text())
+            .catch(() => null),
           fetch(`/pokemon-tileset/pkassets/text/${newHeader.name}.asm`).then(
             (r) => r.text()
           ),
@@ -484,9 +473,13 @@ function App() {
           throw new Error("Error loading map, blockset, or object file");
         // load text
         // Combine script content if _2 file exists
-        const fullScriptText = script2Response
-          ? `${scriptResponse}\n${script2Response}`
-          : scriptResponse;
+        const fullScriptText = [
+          scriptResponse,
+          script2Response,
+          script3Response,
+        ]
+          .filter(Boolean) // Remove null values
+          .join("\n");
 
         // Process text data
         const scriptPointers = extractScriptTextPointers(fullScriptText);
@@ -505,8 +498,8 @@ function App() {
         const map = loadAndAssembleMap(
           blkData,
           blocksetData,
-          dimensions.width,
-          dimensions.height
+          newHeader.width || 0,
+          newHeader.height || 0
         );
 
         // 5. Compute map ID and tileset ID then determine the palette ID.
@@ -632,6 +625,13 @@ function App() {
 
         // 11. Display text
         setDisplayText("");
+
+        // 12. Fit the map to the screen
+        // Somewhere in your component, after currentMapData is loaded:
+        const newWidth = map[0].length * TILE_SIZE * DISPLAY_SCALE;
+        const newHeight = map.length * TILE_SIZE * DISPLAY_SCALE;
+        setMapCanvasWidth(newWidth);
+        setMapCanvasHeight(newHeight);
       } catch (error: any) {
         if (error.name !== "AbortError") {
           console.error("Error in header/map loading chain:", error);
@@ -1387,9 +1387,22 @@ function App() {
   const handleEventOverlayClick = (
     e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>
   ) => {
-    if (!currentMapData || !currentMapData.mapObjects || !eventOverlayCanvasRef.current)
+    if (
+      !currentMapData ||
+      !currentMapData.mapObjects ||
+      !eventOverlayCanvasRef.current
+    )
       return;
-    const rect = eventOverlayCanvasRef.current.getBoundingClientRect();
+
+    // Use the container element as the reference.
+    // Assuming the overlay canvas is wrapped in a scrollable container.
+    const container = eventOverlayCanvasRef.current.parentElement;
+    if (!container) return;
+
+    // Get the container's bounding rectangle.
+    const rect = container.getBoundingClientRect();
+
+    // Get the client coordinates from mouse or touch event.
     let clientX: number, clientY: number;
     if ("touches" in e && e.touches.length > 0) {
       clientX = e.touches[0].clientX;
@@ -1400,14 +1413,30 @@ function App() {
     } else {
       return;
     }
-    const scaleX = eventOverlayCanvasRef.current.width / rect.width;
-    const scaleY = eventOverlayCanvasRef.current.height / rect.height;
-    const clickX = (clientX - rect.left) * scaleX;
-    const clickY = (clientY - rect.top) * scaleY;
+
+    // Account for container scroll offsets.
+    const scrollLeft = container.scrollLeft;
+    const scrollTop = container.scrollTop;
+
+    // Compute the offset within the container.
+    const offsetX = clientX - rect.left + scrollLeft;
+    const offsetY = clientY - rect.top + scrollTop;
+
+    // Adjust for any scaling that was applied (fit-to-screen mode).
+    // If fitToScreen is false, effectiveScale is 1.
+    const effectiveScale = 1;
+    const canvasX = offsetX / effectiveScale;
+    const canvasY = offsetY / effectiveScale;
+
+    // Determine the tile by dividing by the effective tile width.
     const tileWidth = BLOCK_SIZE * DISPLAY_SCALE;
-    const tileX = Math.floor(clickX / tileWidth);
-    const tileY = Math.floor(clickY / tileWidth);
+    const tileX = Math.floor(canvasX / tileWidth);
+    const tileY = Math.floor(canvasY / tileWidth);
+
+    // Clear any existing displayed text.
     setDisplayText(null);
+
+    // --- Handle Warp Events ---
     const warpEvent = currentMapData.mapObjects.warp_events.find(
       (event) => !event.isDebug && event.x === tileX && event.y === tileY
     );
@@ -1432,10 +1461,14 @@ function App() {
       if (matchingHeader) {
         handleMapChange(matchingHeader);
       } else {
-        console.warn(`Target map ${targetHeader} not found in available headers`);
+        console.warn(
+          `Target map ${targetHeader} not found in available headers`
+        );
       }
       return;
     }
+
+    // --- Handle Background Events ---
     const bgEvent = currentMapData.mapObjects.bg_events.find(
       (event) => event.x === tileX && event.y === tileY
     );
@@ -1447,7 +1480,7 @@ function App() {
         } else if (textData.type === "trainer") {
           text = `${textData.textBefore}\n${textData.textEnd}\n${textData.textAfter}`;
         }
-        return text.replace(/#/g, "POK\uE001");
+        return text.replace(/#/g, "POK\uE001").replace("!@", "!");
       };
       const textData = linkedTextRef.current[bgEvent.scriptId];
       if (textData) {
@@ -1455,6 +1488,8 @@ function App() {
         return;
       }
     }
+
+    // --- Handle Object Events ---
     const objectEventIndex = currentMapData.mapObjects.object_events.findIndex(
       (obj, index) => {
         let objX: number, objY: number;
@@ -1475,7 +1510,8 @@ function App() {
       }
     );
     if (objectEventIndex !== -1) {
-      const objEvent = currentMapData.mapObjects.object_events[objectEventIndex];
+      const objEvent =
+        currentMapData.mapObjects.object_events[objectEventIndex];
       const getDisplayText = (textData: ExtractedText): string => {
         let text = "";
         if (textData.type === "text") {
@@ -1483,7 +1519,7 @@ function App() {
         } else if (textData.type === "trainer") {
           text = `${textData.textBefore}\n${textData.textEnd}\n${textData.textAfter}`;
         }
-        return text.replace(/#/g, "POK\uE001");
+        return text.replace(/#/g, "POK\uE001").replace("!@", "!");
       };
       const textData = linkedTextRef.current[objEvent.textScript];
       if (textData) {
@@ -1598,6 +1634,122 @@ function App() {
     }
   }, [currentMapData, collisionTiles]);
 
+  // Helper function to render connection panels (north, south, east, west)
+  const renderConnectionPanel = (
+    direction: "north" | "south" | "east" | "west"
+  ) => {
+    if (
+      !currentMapData ||
+      !currentMapData.header.connections.find(
+        (conn) => conn.direction === direction
+      )
+    ) {
+      return null;
+    }
+
+    const connection = currentMapData.header.connections.find(
+      (conn) => conn.direction === direction
+    );
+    const mapName = connection?.mapName || "";
+
+    // Common click handler for all directions
+    const handleClick = () => {
+      if (connection && connection.mapName) {
+        const targetHeader = connection.mapName + ".asm";
+        const matchingHeader = AVAILABLE_HEADERS.find(
+          (header) => header.toLowerCase() === targetHeader.toLowerCase()
+        );
+        if (matchingHeader) {
+          handleMapChange(matchingHeader);
+        }
+      }
+    };
+
+    // Common hover handlers for all directions
+    const handleMouseEnter = (e: React.MouseEvent<HTMLDivElement>) => {
+      e.currentTarget.style.backgroundColor = "rgba(0, 100, 255, 0.7)";
+    };
+
+    const handleMouseLeave = (e: React.MouseEvent<HTMLDivElement>) => {
+      e.currentTarget.style.backgroundColor = "rgba(0, 0, 0, 0.5)";
+    };
+
+    // Style properties specific to each direction
+    const isHorizontal = direction === "north" || direction === "south";
+    const hasWest = currentMapData.header.connections.find(
+      (conn) => conn.direction === "west"
+    );
+    const hasEast = currentMapData.header.connections.find(
+      (conn) => conn.direction === "east"
+    );
+
+    // Calculate width for horizontal panels (north/south)
+    const horizontalWidth =
+      hasWest && hasEast
+        ? mapCanvasWidth + BLOCK_SIZE * DISPLAY_SCALE * 2
+        : hasWest || hasEast
+        ? mapCanvasWidth + BLOCK_SIZE * DISPLAY_SCALE
+        : mapCanvasWidth;
+
+    // Base styles common to all panels
+    const baseStyle: React.CSSProperties = {
+      backgroundColor: "rgba(0, 0, 0, 0.5)",
+      color: "#fff",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      cursor: "pointer",
+      transition: "background-color 0.2s",
+    };
+
+    // Direction-specific styles
+    const directionStyles: Record<typeof direction, React.CSSProperties> = {
+      north: {
+        width: horizontalWidth,
+        height: `${BLOCK_SIZE * DISPLAY_SCALE}px`,
+      },
+      south: {
+        width: horizontalWidth,
+        height: `${BLOCK_SIZE * DISPLAY_SCALE}px`,
+      },
+      west: {
+        width: `${BLOCK_SIZE * DISPLAY_SCALE}px`,
+        height: mapCanvasHeight,
+      },
+      east: {
+        width: `${BLOCK_SIZE * DISPLAY_SCALE}px`,
+        height: mapCanvasHeight,
+        writingMode: "vertical-lr",
+      },
+    };
+
+    // Combine styles
+    const combinedStyle = { ...baseStyle, ...directionStyles[direction] };
+
+    // Special text container for west direction
+    const renderText = () => {
+      if (direction === "west") {
+        return (
+          <div style={{ marginLeft: "-6px", transform: "rotate(-90deg)" }}>
+            {mapName}
+          </div>
+        );
+      }
+      return mapName;
+    };
+
+    return (
+      <div
+        style={combinedStyle}
+        onClick={handleClick}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+      >
+        {renderText()}
+      </div>
+    );
+  };
+
   //
   // Render the component.
   //
@@ -1636,7 +1788,7 @@ function App() {
             <option value="sgb">Super Game Boy</option>
           </select>
         </div>
-        {currentMapData && (
+        {currentMapData !== null && DEBUG && (
           <div className="map-info" style={{ textAlign: "left" }}>
             <p>Map Name: {currentMapData.header.name}</p>
             <p>Map ID: {getMapIdFromHeader(selectedHeader, mapPointers)}</p>
@@ -1746,13 +1898,15 @@ function App() {
         className="main-view"
         style={{ display: "flex", flexDirection: "column" }}
       >
-        <div className="tileset-display">
-          <canvas
-            ref={canvasRef}
-            onClick={handleCanvasClick}
-            style={{ cursor: "crosshair", border: "1px solid #000" }}
-          />
-        </div>
+        {DEBUG && (
+          <div className="tileset-display">
+            <canvas
+              ref={canvasRef}
+              onClick={handleCanvasClick}
+              style={{ cursor: "crosshair", border: "1px solid #000" }}
+            />
+          </div>
+        )}
 
         {false &&
           blocksetVisual &&
@@ -1780,73 +1934,77 @@ function App() {
               ))}
             </div>
           )}
-
         <div
-          className="map-display"
-          style={{ position: "relative", border: "1px solid #000" }}
+          className="outer-container"
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+          }}
         >
-          {/* The static map canvas */}
-          <canvas ref={mapCanvasRef} />
-          {/* The water overlay canvas (positioned absolutely on top) */}
-          <canvas
-            ref={waterOverlayCanvasRef}
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              padding: "0px",
-              pointerEvents: "none",
-            }}
-          />
-          {/* The event overlay canvas (for clickable 'W' markers) */}
-          <canvas
-            ref={eventOverlayCanvasRef}
-            onClick={handleEventOverlayClick}
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              padding: "0px",
-              zIndex: 2,
-            }}
-          />
-          {/* The collision overlay canvas (draws transparent red on non-walkable squares) */}
-          {/* <canvas
-            ref={collisionOverlayCanvasRef}
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              pointerEvents: "none",
-              zIndex: 3, // ensure it sits on top of other overlays
-            }}
-          /> */}
-        </div>
+          {renderConnectionPanel("north")}
 
-        <div className="preview-palette-container">
-          <div className="tile-preview">
-            {selectedTile && (
-              <>
-                <canvas
-                  ref={previewCanvasRef}
-                  width={TILE_SIZE * ZOOM_FACTOR}
-                  height={TILE_SIZE * ZOOM_FACTOR}
-                  style={{ border: "1px solid #000" }}
-                />
-                <p>
-                  Tile Coordinates: ({selectedTile.x}, {selectedTile.y})
-                </p>
-              </>
-            )}
+          {/* Center Row (West panel, Map Display, East panel) */}
+          <div style={{ display: "flex" }}>
+            {renderConnectionPanel("west")}
+
+            {/* Map Display */}
+            <div
+              className="map-display"
+              style={{
+                position: "relative",
+                width: mapCanvasWidth,
+                height: mapCanvasHeight,
+              }}
+            >
+              <canvas ref={mapCanvasRef} />
+              <canvas
+                ref={waterOverlayCanvasRef}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  pointerEvents: "none",
+                }}
+              />
+              <canvas
+                ref={eventOverlayCanvasRef}
+                onClick={handleEventOverlayClick}
+                style={{ position: "absolute", top: 0, left: 0, zIndex: 2 }}
+              />
+            </div>
+            {renderConnectionPanel("east")}
           </div>
 
-          {currentMapData && (
-            <PaletteDisplay
-              paletteId={currentMapData.paletteId}
-              paletteMode={paletteMode}
-            />
-          )}
+          {renderConnectionPanel("south")}
         </div>
+
+        {DEBUG && (
+          <div className="preview-palette-container">
+            <div className="tile-preview">
+              {selectedTile && (
+                <>
+                  <canvas
+                    ref={previewCanvasRef}
+                    width={TILE_SIZE * ZOOM_FACTOR}
+                    height={TILE_SIZE * ZOOM_FACTOR}
+                    style={{ border: "1px solid #000" }}
+                  />
+                  <p>
+                    Tile Coordinates: ({selectedTile.x}, {selectedTile.y})
+                  </p>
+                </>
+              )}
+            </div>
+
+            {currentMapData && (
+              <PaletteDisplay
+                paletteId={currentMapData.paletteId}
+                paletteMode={paletteMode}
+              />
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
