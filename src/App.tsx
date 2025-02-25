@@ -85,7 +85,7 @@ interface TileCoordinates {
   y: number;
 }
 
-const DEBUG = false;
+const DEBUG = true;
 //
 // Main App Component
 //
@@ -1652,6 +1652,44 @@ function App() {
     );
     const mapName = connection?.mapName || "";
 
+    // Get the palette color (second-to-last color, index 2)
+    const paletteColor = currentMapData.paletteId !== undefined 
+      ? palettes[currentMapData.paletteId] 
+      : null;
+    
+    // Convert the palette color to RGB format for CSS
+    let gradientStyle = {};
+    if (paletteColor) {
+      const colorMode = paletteMode === "cgb" ? "cgb" : "sgb";
+      const color = paletteColor[colorMode][1];
+      // Convert from 0-31 range to 0-255 range
+      const r = Math.round((color.r / 31) * 255);
+      const g = Math.round((color.g / 31) * 255);
+      const b = Math.round((color.b / 31) * 255);
+      
+      // Create direction-specific gradients
+      const darkGrey = "rgba(50,50,50,0.9)";
+      const paletteRgba = `rgba(${r},${g},${b},0.7)`;
+      
+      if (direction === "north") {
+        gradientStyle = {
+          background: `linear-gradient(to bottom, ${darkGrey}, ${paletteRgba})`
+        };
+      } else if (direction === "south") {
+        gradientStyle = {
+          background: `linear-gradient(to top, ${darkGrey}, ${paletteRgba})`
+        };
+      } else if (direction === "west") {
+        gradientStyle = {
+          background: `linear-gradient(to right, ${darkGrey}, ${paletteRgba})`
+        };
+      } else if (direction === "east") {
+        gradientStyle = {
+          background: `linear-gradient(to left, ${darkGrey}, ${paletteRgba})`
+        };
+      }
+    }
+
     // Common click handler for all directions
     const handleClick = () => {
       if (connection && connection.mapName) {
@@ -1663,15 +1701,6 @@ function App() {
           handleMapChange(matchingHeader);
         }
       }
-    };
-
-    // Common hover handlers for all directions
-    const handleMouseEnter = (e: React.MouseEvent<HTMLDivElement>) => {
-      e.currentTarget.style.backgroundColor = "rgba(0, 100, 255, 0.7)";
-    };
-
-    const handleMouseLeave = (e: React.MouseEvent<HTMLDivElement>) => {
-      e.currentTarget.style.backgroundColor = "rgba(0, 0, 0, 0.5)";
     };
 
     // Style properties specific to each direction
@@ -1691,46 +1720,51 @@ function App() {
         ? mapCanvasWidth + BLOCK_SIZE * DISPLAY_SCALE
         : mapCanvasWidth;
 
-    // Base styles common to all panels
-    const baseStyle: React.CSSProperties = {
-      backgroundColor: "rgba(0, 0, 0, 0.5)",
-      color: "#fff",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      cursor: "pointer",
-      transition: "background-color 0.2s",
-    };
-
     // Direction-specific styles
     const directionStyles: Record<typeof direction, React.CSSProperties> = {
       north: {
         width: horizontalWidth,
         height: `${BLOCK_SIZE * DISPLAY_SCALE}px`,
+        ...gradientStyle
       },
       south: {
         width: horizontalWidth,
         height: `${BLOCK_SIZE * DISPLAY_SCALE}px`,
+        ...gradientStyle
       },
       west: {
         width: `${BLOCK_SIZE * DISPLAY_SCALE}px`,
         height: mapCanvasHeight,
+        ...gradientStyle
       },
       east: {
         width: `${BLOCK_SIZE * DISPLAY_SCALE}px`,
         height: mapCanvasHeight,
-        writingMode: "vertical-lr",
+        ...gradientStyle
       },
     };
 
-    // Combine styles
-    const combinedStyle = { ...baseStyle, ...directionStyles[direction] };
-
-    // Special text container for west direction
+    // Special text container for west and east directions
     const renderText = () => {
       if (direction === "west") {
         return (
-          <div style={{ marginLeft: "-6px", transform: "rotate(-90deg)" }}>
+          <div style={{ 
+            marginLeft: "-6px", 
+            transform: "rotate(-90deg)",
+            fontSize: "24px",
+            whiteSpace: "nowrap"
+          }}>
+            {mapName}
+          </div>
+        );
+      } else if (direction === "east") {
+        return (
+          <div style={{
+            fontSize: "24px",
+            whiteSpace: "nowrap",
+            writingMode: "vertical-lr",
+            textOrientation: "mixed"
+          }}>
             {mapName}
           </div>
         );
@@ -1740,10 +1774,9 @@ function App() {
 
     return (
       <div
-        style={combinedStyle}
+        className={`connection-panel ${direction}`}
+        style={directionStyles[direction]}
         onClick={handleClick}
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
       >
         {renderText()}
       </div>
