@@ -33,6 +33,7 @@ import {
   TILES_PER_ROW,
   WATER_ANIMATION_DELAY,
   SPRITE_ANIMATION_DELAY,
+  INTERACTIVE_ELEMENT_CURSOR,
 } from "./constants";
 import { getSpriteFrame, SpriteType } from "./sprites/spriteHelper";
 import { usePreloadedSprites } from "./hooks/usePreloadedSprites";
@@ -85,7 +86,7 @@ interface TileCoordinates {
   y: number;
 }
 
-const DEBUG = true;
+const DEBUG = false;
 //
 // Main App Component
 //
@@ -1528,6 +1529,82 @@ function App() {
       }
     }
   };
+
+  //
+  // NEW: Handle mouse movement over the event overlay canvas.
+  //
+  const handleEventOverlayMouseMove = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (
+        !currentMapData ||
+        !currentMapData.mapObjects ||
+        !eventOverlayCanvasRef.current
+      )
+        return;
+
+      // Get the container element as the reference
+      const container = eventOverlayCanvasRef.current.parentElement;
+      if (!container) return;
+
+      // Get the container's bounding rectangle
+      const rect = container.getBoundingClientRect();
+
+      // Account for container scroll offsets
+      const scrollLeft = container.scrollLeft;
+      const scrollTop = container.scrollTop;
+
+      // Compute the offset within the container
+      const offsetX = e.clientX - rect.left + scrollLeft;
+      const offsetY = e.clientY - rect.top + scrollTop;
+
+      // Determine the tile by dividing by the effective tile width
+      const tileWidth = BLOCK_SIZE * DISPLAY_SCALE;
+      const tileX = Math.floor(offsetX / tileWidth);
+      const tileY = Math.floor(offsetY / tileWidth);
+
+      // Check if hovering over a warp event
+      const hoveringWarp = currentMapData.mapObjects.warp_events.some(
+        (warp) => !warp.isDebug && warp.x === tileX && warp.y === tileY
+      );
+
+      // Check if hovering over a background event
+      const hoveringBgEvent = currentMapData.mapObjects.bg_events.some(
+        (event) => event.x === tileX && event.y === tileY
+      );
+
+      // Check if hovering over an object event (using MovingState for moving objects)
+      const hoveringObject = currentMapData.mapObjects.object_events.some((obj, idx) => {
+        let objX: number, objY: number;
+        
+        if (obj.movement === "WALK") {
+          // For moving objects, use the current position from _movingStates
+          const movingState = _movingStates[idx];
+          if (movingState) {
+            objX = Math.round(movingState.currentX / BLOCK_SIZE);
+            objY = Math.round(movingState.currentY / BLOCK_SIZE);
+          } else {
+            objX = obj.x;
+            objY = obj.y;
+          }
+        } else {
+          // For static objects, use their defined position
+          objX = obj.x;
+          objY = obj.y;
+        }
+        
+        return objX === tileX && objY === tileY;
+      });
+
+      // Change cursor style based on whether hovering over an interactive element
+      if (hoveringWarp || hoveringBgEvent || hoveringObject) {
+        e.currentTarget.style.cursor = INTERACTIVE_ELEMENT_CURSOR;
+      } else {
+        e.currentTarget.style.cursor = 'default';
+      }
+    },
+    [currentMapData, _movingStates]
+  );
+
   //
   // Update URL whenever selectedHeader or paletteMode changes
   //
@@ -2003,6 +2080,7 @@ function App() {
               <canvas
                 ref={eventOverlayCanvasRef}
                 onClick={handleEventOverlayClick}
+                onMouseMove={handleEventOverlayMouseMove}
                 style={{ position: "absolute", top: 0, left: 0, zIndex: 2 }}
               />
             </div>
