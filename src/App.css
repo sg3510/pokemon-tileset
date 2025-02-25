@@ -110,6 +110,46 @@
   margin: 20px;
 }
 
+/* New scrollable container for maps */
+.map-scroll-container {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  width: 100%;
+  align-self: flex-start;
+  margin: 0;
+  padding: 0;
+  position: relative;
+  scrollbar-width: thin;  /* Firefox */
+}
+
+/* Customize scrollbar for better visibility */
+.map-scroll-container::-webkit-scrollbar {
+  height: 8px;
+}
+
+.map-scroll-container::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+}
+
+.map-scroll-container::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+}
+
+.map-scroll-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+/* Set all canvases to be non-selectable for better UX */
+canvas {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
 /* Connection panel styles */
 .connection-panel {
   display: flex;

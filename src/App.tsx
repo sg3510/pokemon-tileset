@@ -1660,6 +1660,14 @@ function App() {
       if (mapDisplay) {
         mapDisplay.scrollTo(0, 0);
       }
+      
+      // Find all map-scroll-container elements and scroll them to the left
+      const scrollContainers = document.querySelectorAll(".map-scroll-container");
+      scrollContainers.forEach(container => {
+        if (container instanceof HTMLElement) {
+          container.scrollLeft = 0;
+        }
+      });
     }
   }, [currentMapData, paletteMode, preloadedTilesets]);
 
@@ -2049,45 +2057,54 @@ function App() {
           style={{
             display: "flex",
             flexDirection: "column",
-            alignItems: "center",
+            alignItems: "flex-start", // Changed from center to flex-start
+            width: "100%",
           }}
         >
-          {renderConnectionPanel("north")}
-
-          {/* Center Row (West panel, Map Display, East panel) */}
-          <div style={{ display: "flex" }}>
-            {renderConnectionPanel("west")}
-
-            {/* Map Display */}
-            <div
-              className="map-display"
-              style={{
-                position: "relative",
-                width: mapCanvasWidth,
-                height: mapCanvasHeight,
-              }}
-            >
-              <canvas ref={mapCanvasRef} />
-              <canvas
-                ref={waterOverlayCanvasRef}
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  pointerEvents: "none",
-                }}
-              />
-              <canvas
-                ref={eventOverlayCanvasRef}
-                onClick={handleEventOverlayClick}
-                onMouseMove={handleEventOverlayMouseMove}
-                style={{ position: "absolute", top: 0, left: 0, zIndex: 2 }}
-              />
-            </div>
-            {renderConnectionPanel("east")}
+          {/* North connection panel inside scroll container */}
+          <div className="map-scroll-container">
+            {renderConnectionPanel("north")}
           </div>
 
-          {renderConnectionPanel("south")}
+          {/* Map-scroll-container wraps the center row */}
+          <div className="map-scroll-container">
+            <div style={{ display: "flex" }}>
+              {renderConnectionPanel("west")}
+
+              {/* Map Display */}
+              <div
+                className="map-display"
+                style={{
+                  position: "relative",
+                  width: mapCanvasWidth,
+                  height: mapCanvasHeight,
+                }}
+              >
+                <canvas ref={mapCanvasRef} />
+                <canvas
+                  ref={waterOverlayCanvasRef}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    pointerEvents: "none",
+                  }}
+                />
+                <canvas
+                  ref={eventOverlayCanvasRef}
+                  onClick={handleEventOverlayClick}
+                  onMouseMove={handleEventOverlayMouseMove}
+                  style={{ position: "absolute", top: 0, left: 0, zIndex: 2 }}
+                />
+              </div>
+              {renderConnectionPanel("east")}
+            </div>
+          </div>
+
+          {/* South connection panel should also be in the scroll container */}
+          <div className="map-scroll-container">
+            {renderConnectionPanel("south")}
+          </div>
         </div>
 
         {DEBUG && (
