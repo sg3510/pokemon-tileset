@@ -300,20 +300,70 @@ function App() {
 
         const mappings: Record<string, string> = {};
         const mappingLines = mappingsText.split("\n");
+        
+        // Keep track of GFX names we've found in consecutive lines
+        let currentGfxNames: string[] = [];
+        
+        // This will store the reverse mapping: blockset -> array of tileset names
+        const blocksetToTilesets: Record<string, string[]> = {};
+        
         for (let i = 0; i < mappingLines.length; i++) {
-          const gfxMatch = mappingLines[i].match(/(\w+)_GFX::/);
+          const line = mappingLines[i].trim();
+          
+          // Check if this line has a GFX definition
+          const gfxMatch = line.match(/(\w+)_GFX::/);
+          
           if (gfxMatch) {
-            for (let j = i; j < mappingLines.length; j++) {
-              const blocksetMatch = mappingLines[j].match(
-                /INCBIN\s+"gfx\/blocksets\/(\w+)\.bst"/
-              );
+            // Store this GFX name
+            currentGfxNames.push(gfxMatch[1].toUpperCase());
+            
+            // If this line also contains the blockset inclusion, map all current GFX names and reset
+            if (line.includes('INCBIN "gfx/blocksets/')) {
+              const blocksetMatch = line.match(/INCBIN\s+"gfx\/blocksets\/(\w+)\.bst"/);
               if (blocksetMatch) {
-                mappings[gfxMatch[1].toUpperCase()] = blocksetMatch[1];
-                break;
+                const blocksetName = blocksetMatch[1];
+                currentGfxNames.forEach(gfxName => {
+                  mappings[gfxName] = blocksetName;
+                  
+                  // Update the reverse mapping
+                  if (!blocksetToTilesets[blocksetName]) {
+                    blocksetToTilesets[blocksetName] = [];
+                  }
+                  blocksetToTilesets[blocksetName].push(gfxName);
+                });
+                currentGfxNames = [];
               }
             }
+          } 
+          // If this isn't a GFX line but includes a blockset inclusion
+          else if (line.includes('INCBIN "gfx/blocksets/')) {
+            const blocksetMatch = line.match(/INCBIN\s+"gfx\/blocksets\/(\w+)\.bst"/);
+            if (blocksetMatch && currentGfxNames.length > 0) {
+              // Map all pending GFX names to this blockset
+              const blocksetName = blocksetMatch[1];
+              currentGfxNames.forEach(gfxName => {
+                mappings[gfxName] = blocksetName;
+                
+                // Update the reverse mapping
+                if (!blocksetToTilesets[blocksetName]) {
+                  blocksetToTilesets[blocksetName] = [];
+                }
+                blocksetToTilesets[blocksetName].push(gfxName);
+              });
+              currentGfxNames = [];
+            }
+          }
+          // If we find a non-GFX, non-blockset line after collecting GFX names, reset
+          else if (!line.endsWith('_Block::') && currentGfxNames.length > 0 && line !== '') {
+            currentGfxNames = [];
           }
         }
+        
+        // Store the reverse mapping as a property of the mappings object
+        (mappings as any).__blocksetToTilesets = blocksetToTilesets;
+        
+        console.log('Generated mappings:', mappings);
+        console.log('Reverse mappings:', blocksetToTilesets);
         setCachedConstants(constants);
         setCachedMappings(mappings);
       } catch (error: any) {
@@ -430,10 +480,16 @@ function App() {
         const newSelectedImage = `${newHeader.actualBlockset}.png`;
         const newSelectedObjectFile = `${newHeader.name}.asm`;
 
+        console.log("Loading assets:", {
+          map: newSelectedMap,
+          blockset: newSelectedBlockset,
+          image: newSelectedImage
+        });
+
         // 3. Ensure the new tileset image is preloaded.
         const originalTileset = preloadedTilesets[newSelectedImage];
         if (!originalTileset)
-          throw new Error(`Tileset image ${newSelectedImage} not loaded`);
+          throw new Error(`Tileset image ${newSelectedImage} not loaded. Available images: ${Object.keys(preloadedTilesets).join(", ")}`);
 
         // 4. Fetch the map and blockset files concurrently.
         const [
@@ -1789,7 +1845,7 @@ function App() {
     };
 
     // Style properties specific to each direction
-    const isHorizontal = direction === "north" || direction === "south";
+    // const isHorizontal = direction === "north" || direction === "south";
     const hasWest = currentMapData.header.connections.find(
       (conn) => conn.direction === "west"
     );
