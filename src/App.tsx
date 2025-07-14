@@ -178,6 +178,12 @@ function App() {
   // Add these state variables near the top of the component with other state declarations
   const [mapCanvasWidth, setMapCanvasWidth] = useState(0);
   const [mapCanvasHeight, setMapCanvasHeight] = useState(0);
+  const [needsHorizontalScroll, setNeedsHorizontalScroll] = useState(false);
+
+  // Add new state for animation delays and settings panel
+  const [waterAnimationDelay, setWaterAnimationDelay] = useState(WATER_ANIMATION_DELAY);
+  const [spriteAnimationDelay, setSpriteAnimationDelay] = useState(SPRITE_ANIMATION_DELAY);
+  const [showSettings, setShowSettings] = useState(false);
 
   // Update lastValidMap whenever we successfully change maps
   useEffect(() => {
@@ -190,6 +196,26 @@ function App() {
       setLastValidMap(previousMap);
     }
   }, [selectedHeader, lastValidMap]);
+
+  // Handle window resize to recalculate scroll needs
+  useEffect(() => {
+    const handleResize = () => {
+      if (currentMapData) {
+        const connectionPanelWidth = BLOCK_SIZE * DISPLAY_SCALE;
+        const hasWestConnection = currentMapData.header.connections.some(conn => conn.direction === "west");
+        const hasEastConnection = currentMapData.header.connections.some(conn => conn.direction === "east");
+        const totalWidth = mapCanvasWidth + 
+          (hasWestConnection ? connectionPanelWidth : 0) + 
+          (hasEastConnection ? connectionPanelWidth : 0);
+        
+        const viewportWidth = window.innerWidth - 64;
+        setNeedsHorizontalScroll(totalWidth > viewportWidth);
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [currentMapData, mapCanvasWidth]);
 
   // Update lastValidMap before changing maps
   const handleMapChange = (newMap: string) => {
@@ -689,6 +715,18 @@ function App() {
         const newHeight = map.length * TILE_SIZE * DISPLAY_SCALE;
         setMapCanvasWidth(newWidth);
         setMapCanvasHeight(newHeight);
+        
+        // Calculate if we need horizontal scrolling
+        const connectionPanelWidth = BLOCK_SIZE * DISPLAY_SCALE; // 32px
+        const hasWestConnection = newHeader.connections.some(conn => conn.direction === "west");
+        const hasEastConnection = newHeader.connections.some(conn => conn.direction === "east");
+        const totalWidth = newWidth + 
+          (hasWestConnection ? connectionPanelWidth : 0) + 
+          (hasEastConnection ? connectionPanelWidth : 0);
+        
+        // Check if content fits within viewport (accounting for padding)
+        const viewportWidth = window.innerWidth - 64; // Subtract padding
+        setNeedsHorizontalScroll(totalWidth > viewportWidth);
       } catch (error: any) {
         if (error.name !== "AbortError") {
           console.error("Error in header/map loading chain:", error);
@@ -866,7 +904,7 @@ function App() {
     function animate(timestamp: number) {
       if (!currentMapData) return;
       // Control animation speed using timestamp
-      if (timestamp - lastFrameTime >= SPRITE_ANIMATION_DELAY) {
+      if (timestamp - lastFrameTime >= spriteAnimationDelay) {
         setMovingStates((prev) => {
           const newStates = { ...prev };
 
@@ -1076,7 +1114,7 @@ function App() {
         cancelAnimationFrame(animationFrameId);
       }
     };
-  }, [currentMapData, drawMovingSprites]);
+  }, [currentMapData, drawMovingSprites, spriteAnimationDelay]);
   //
   // Draw the zoomed preview of a selected tile.
   //
@@ -1279,7 +1317,7 @@ function App() {
     function animate(timestamp: number) {
       if (!offscreenCtx || !waterCtx) return;
       // Control animation speed using timestamp
-      if (timestamp - lastFrameTime >= WATER_ANIMATION_DELAY) {
+      if (timestamp - lastFrameTime >= waterAnimationDelay) {
         waterAnimCounter = (waterAnimCounter + 1) & 7;
         const direction: "left" | "right" =
           (waterAnimCounter & 4) !== 0 ? "left" : "right";
@@ -1357,7 +1395,7 @@ function App() {
           );
       }
     };
-  }, [currentMapData, tilesetConstants, preloadedTilesets, recoloredFlowers]);
+  }, [currentMapData, tilesetConstants, preloadedTilesets, recoloredFlowers, waterAnimationDelay]);
 
   // NEW: Effect to draw warp and object event markers on an overlay canvas.
 
@@ -1929,6 +1967,69 @@ function App() {
   //
   return (
     <div className="app-container">
+      {/* Settings button */}
+      <button 
+        className="settings-button"
+        onClick={() => setShowSettings(!showSettings)}
+        title="Settings"
+      >
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 15.5A3.5 3.5 0 0 1 8.5 12A3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5a3.5 3.5 0 0 1-3.5 3.5m7.43-2.53c.04-.32.07-.64.07-.97c0-.33-.03-.66-.07-1l2.11-1.63c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.31-.61-.22l-2.49 1c-.52-.39-1.06-.73-1.69-.98l-.37-2.65A.506.506 0 0 0 14 2h-4c-.25 0-.46.18-.5.42l-.37 2.65c-.63.25-1.17.59-1.69.98l-2.49-1c-.22-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64L4.57 11c-.04.34-.07.67-.07 1c0 .33.03.65.07.97l-2.11 1.66c-.19.15-.25.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.06.74 1.69.99l.37 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.37-2.65c.63-.26 1.17-.59 1.69-.99l2.49 1.01c.22.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.66Z"/>
+        </svg>
+      </button>
+
+      {/* Settings panel */}
+      {showSettings && (
+        <div className="settings-panel">
+          <h3>Animation Settings</h3>
+          
+          <div className="setting-item">
+            <label htmlFor="water-delay">Water Animation Delay: {waterAnimationDelay}ms</label>
+            <input
+              id="water-delay"
+              type="range"
+              min="50"
+              max="1000"
+              step="25"
+              value={waterAnimationDelay}
+              onChange={(e) => setWaterAnimationDelay(Number(e.target.value))}
+            />
+            <button 
+              className="reset-button"
+              onClick={() => setWaterAnimationDelay(WATER_ANIMATION_DELAY)}
+            >
+              Reset
+            </button>
+          </div>
+
+          <div className="setting-item">
+            <label htmlFor="sprite-delay">Sprite Animation Delay: {spriteAnimationDelay}ms</label>
+            <input
+              id="sprite-delay"
+              type="range"
+              min="10"
+              max="200"
+              step="10"
+              value={spriteAnimationDelay}
+              onChange={(e) => setSpriteAnimationDelay(Number(e.target.value))}
+            />
+            <button 
+              className="reset-button"
+              onClick={() => setSpriteAnimationDelay(SPRITE_ANIMATION_DELAY)}
+            >
+              Reset
+            </button>
+          </div>
+
+          <button 
+            className="close-settings"
+            onClick={() => setShowSettings(false)}
+          >
+            Close
+          </button>
+        </div>
+      )}
+
       {/* Only show textbox when there's text to display */}
       {displayText && (
         <div className="textbox">
@@ -2118,12 +2219,24 @@ function App() {
           }}
         >
           {/* North connection panel inside scroll container */}
-          <div className="map-scroll-container">
+          <div 
+            className="map-scroll-container"
+            style={{
+              overflowX: needsHorizontalScroll ? 'auto' : 'visible',
+              overflowY: 'hidden'
+            }}
+          >
             {renderConnectionPanel("north")}
           </div>
 
           {/* Map-scroll-container wraps the center row */}
-          <div className="map-scroll-container">
+          <div 
+            className="map-scroll-container"
+            style={{
+              overflowX: needsHorizontalScroll ? 'auto' : 'visible',
+              overflowY: 'hidden'
+            }}
+          >
             <div style={{ display: "flex" }}>
               {renderConnectionPanel("west")}
 
@@ -2158,7 +2271,13 @@ function App() {
           </div>
 
           {/* South connection panel should also be in the scroll container */}
-          <div className="map-scroll-container">
+          <div 
+            className="map-scroll-container"
+            style={{
+              overflowX: needsHorizontalScroll ? 'auto' : 'visible',
+              overflowY: 'hidden'
+            }}
+          >
             {renderConnectionPanel("south")}
           </div>
         </div>

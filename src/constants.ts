@@ -14,9 +14,9 @@ export const FLOWER_TILE_ID = 3;
 export const TILES_PER_ROW = 16;
 
 // How often (in ms) the water pixels shift.
-export const WATER_ANIMATION_DELAY = 275;
+export const WATER_ANIMATION_DELAY = 400;
 // How often (in ms) the sprite animation updates.
-export const SPRITE_ANIMATION_DELAY = 30;
+export const SPRITE_ANIMATION_DELAY = 80;
 
 // Cursor style for interactive elements (warps, NPCs, objects)
 export const INTERACTIVE_ELEMENT_CURSOR = 'pointer';
